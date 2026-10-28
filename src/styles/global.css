@@ -1,0 +1,163 @@
+:root {
+  color-scheme: light;
+
+  --bg: #eceef1;
+  --win: #ffffff;
+  --pane: #ffffff;
+  --side: #f5f6f8;
+  --tabbar: #f5f6f8;
+  --border: #e5e7eb;
+  --border-2: #d8dbe0;
+
+  --fg: #22262c;
+  --fg-2: #5b6472;
+  --fg-3: #8b93a1;
+
+  --accent: #2f6ae0;
+  --accent-soft: rgba(47, 106, 224, 0.09);
+  --hover: rgba(20, 26, 38, 0.05);
+  --mod: #c98a12;
+  --active-line: rgba(127, 127, 127, 0.055);
+
+  --s-head: #0550ae;
+  --s-str: #0a7d3e;
+  --s-com: #7d8590;
+  --s-num: #b35900;
+  --s-kw: #8250df;
+  --s-fn: #1f6feb;
+  --s-type: #953800;
+  --s-prop: #1f6feb;
+  --s-tag: #cf222e;
+
+  --editor-font-size: 13px;
+  --editor-line-height: 1.7;
+
+  --mono: "JetBrains Mono", "Cascadia Code", Consolas, "Sarasa Mono SC", monospace;
+  --sans: -apple-system, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+}
+
+/* 首屏还没跑 JS 时按系统主题兜底 */
+@media (prefers-color-scheme: dark) {
+  :root:not([data-theme]) {
+    color-scheme: dark;
+
+    --bg: #101216;
+    --win: #1e2024;
+    --pane: #1e2024;
+    --side: #191b1f;
+    --tabbar: #191b1f;
+    --border: #2a2d33;
+    --border-2: #34383f;
+
+    --fg: #d9dde3;
+    --fg-2: #9aa3b2;
+    --fg-3: #6f7887;
+
+    --accent: #7aa2ff;
+    --accent-soft: rgba(122, 162, 255, 0.13);
+    --hover: rgba(255, 255, 255, 0.06);
+    --mod: #e0b357;
+    --active-line: rgba(255, 255, 255, 0.05);
+
+    --s-head: #79b8ff;
+    --s-str: #7ee787;
+    --s-com: #6c7686;
+    --s-num: #ffab70;
+    --s-kw: #d2a8ff;
+    --s-fn: #79c0ff;
+    --s-type: #ffa657;
+    --s-prop: #79c0ff;
+    --s-tag: #ff7b72;
+  }
+}
+
+:root[data-theme="dark"] {
+  color-scheme: dark;
+
+  --bg: #101216;
+  --win: #1e2024;
+  --pane: #1e2024;
+  --side: #191b1f;
+  --tabbar: #191b1f;
+  --border: #2a2d33;
+  --border-2: #34383f;
+
+  --fg: #d9dde3;
+  --fg-2: #9aa3b2;
+  --fg-3: #6f7887;
+
+  --accent: #7aa2ff;
+  --accent-soft: rgba(122, 162, 255, 0.13);
+  --hover: rgba(255, 255, 255, 0.06);
+  --mod: #e0b357;
+  --active-line: rgba(255, 255, 255, 0.05);
+
+  --s-head: #79b8ff;
+  --s-str: #7ee787;
+  --s-com: #6c7686;
+  --s-num: #ffab70;
+  --s-kw: #d2a8ff;
+  --s-fn: #79c0ff;
+  --s-type: #ffa657;
+  --s-prop: #79c0ff;
+  --s-tag: #ff7b72;
+}
+
+:root[data-theme="light"] {
+  color-scheme: light;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+}
+
+body {
+  margin: 0;
+  background: var(--bg);
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 13px;
+  overflow: hidden;
+  -webkit-font-smoothing: antialiased;
+}
+
+button {
+  font: inherit;
+  color: inherit;
+}
+
+::selection {
+  background: var(--accent-soft);
+}
+
+body.dragging {
+  cursor: col-resize;
+  user-select: none;
+}
+
+::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--border-2);
+  border: 2px solid transparent;
+  background-clip: padding-box;
+  border-radius: 6px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--fg-3);
+  background-clip: padding-box;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}

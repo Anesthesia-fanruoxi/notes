@@ -1,0 +1,986 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Note · UI 线框图 v3 · 文档库</title>
+<style>
+  :root {
+    --bg: #eceef1;
+    --win: #ffffff;
+    --pane: #ffffff;
+    --side: #f5f6f8;
+    --tabbar: #f5f6f8;
+    --border: #e5e7eb;
+    --border-2: #d8dbe0;
+    --fg: #22262c;
+    --fg-2: #5b6472;
+    --fg-3: #8b93a1;
+    --accent: #2f6ae0;
+    --accent-soft: rgba(47, 106, 224, .09);
+    --hover: rgba(20, 26, 38, .05);
+    --sel: rgba(47, 106, 224, .16);
+    --mod: #c98a12;
+    --mod-soft: rgba(201, 138, 18, .1);
+    --warn-bg: #fffaea;
+    --warn-bd: #eddb9f;
+    --warn-fg: #7a5c10;
+    --shadow: 0 22px 56px rgba(18, 24, 38, .16), 0 2px 6px rgba(18, 24, 38, .07);
+    --s-head: #0550ae;
+    --s-str: #0a7d3e;
+    --s-com: #7d8590;
+    --s-num: #b35900;
+    --s-kw: #8250df;
+    --s-fn: #1f6feb;
+    --s-code: rgba(20, 26, 38, .055);
+    --mono: "JetBrains Mono", "Cascadia Code", Consolas, "Sarasa Mono SC", monospace;
+    --sans: -apple-system, "Segoe UI", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  }
+  body.dark {
+    --bg: #101216;
+    --win: #1e2024;
+    --pane: #1e2024;
+    --side: #191b1f;
+    --tabbar: #191b1f;
+    --border: #2a2d33;
+    --border-2: #34383f;
+    --fg: #d9dde3;
+    --fg-2: #9aa3b2;
+    --fg-3: #6f7887;
+    --accent: #7aa2ff;
+    --accent-soft: rgba(122, 162, 255, .13);
+    --hover: rgba(255, 255, 255, .06);
+    --sel: rgba(122, 162, 255, .22);
+    --mod: #e0b357;
+    --mod-soft: rgba(224, 179, 87, .13);
+    --warn-bg: #2c2718;
+    --warn-bd: #4a4022;
+    --warn-fg: #e0c884;
+    --shadow: 0 24px 60px rgba(0, 0, 0, .5);
+    --s-head: #79b8ff;
+    --s-str: #7ee787;
+    --s-com: #6c7686;
+    --s-num: #ffab70;
+    --s-kw: #d2a8ff;
+    --s-fn: #79c0ff;
+    --s-code: rgba(255, 255, 255, .07);
+  }
+  * { box-sizing: border-box; }
+  html, body { height: 100%; }
+  body {
+    margin: 0; background: var(--bg); color: var(--fg); font-family: var(--sans);
+    font-size: 13px; display: flex; flex-direction: column; align-items: center;
+    padding: 22px 24px 18px; gap: 12px;
+    transition: background .12s ease, color .12s ease;
+  }
+  body.dragging { cursor: col-resize; user-select: none; }
+
+  /* ---------- 演示控制条 ---------- */
+  .demo { width: min(1210px, 96vw); display: flex; align-items: center; gap: 10px; flex-wrap: wrap; }
+  .brand { font-size: 13px; color: var(--fg-2); white-space: nowrap; }
+  .brand b { color: var(--fg); font-weight: 600; }
+  .brand span { margin-left: 6px; padding: 1px 6px; border-radius: 4px; background: var(--accent-soft); color: var(--accent); font-size: 11px; }
+  .segs { display: flex; gap: 1px; padding: 3px; background: var(--win); border: 1px solid var(--border); border-radius: 8px; margin-left: auto; }
+  .segs button {
+    appearance: none; border: 0; background: transparent; color: var(--fg-2);
+    font: inherit; font-size: 12px; padding: 5px 9px; border-radius: 6px; cursor: pointer;
+    transition: background .12s ease, color .12s ease; white-space: nowrap;
+  }
+  .segs button:hover { background: var(--hover); color: var(--fg); }
+  .segs button.on { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+  .ghost {
+    appearance: none; border: 1px solid var(--border); background: var(--win); color: var(--fg-2);
+    font: inherit; font-size: 12px; padding: 6px 11px; border-radius: 8px; cursor: pointer;
+  }
+  .ghost:hover { background: var(--hover); }
+
+  /* ---------- 窗口 ---------- */
+  .win {
+    position: relative; width: min(1210px, 96vw); height: 720px; background: var(--win);
+    border: 1px solid var(--border-2); border-radius: 10px; box-shadow: var(--shadow);
+    display: flex; flex-direction: column; overflow: hidden;
+  }
+
+  /* ---------- 标签栏 ---------- */
+  .tabbar {
+    height: 40px; flex: 0 0 40px; display: flex; align-items: stretch;
+    background: var(--tabbar); border-bottom: 1px solid var(--border);
+    padding-left: 4px; user-select: none;
+  }
+  .tab {
+    display: flex; align-items: center; gap: 7px; padding: 0 8px 0 13px;
+    max-width: 230px; font-size: 12.5px; color: var(--fg-2);
+    border-right: 1px solid var(--border); cursor: default; position: relative;
+  }
+  .tab.active { background: var(--win); color: var(--fg); box-shadow: inset 0 1px 0 var(--accent); }
+  .tab .name { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .tab .dot { width: 5px; height: 5px; border-radius: 50%; background: var(--mod); flex: 0 0 5px; }
+  .tab .tchip {
+    font-size: 9.5px; color: var(--fg-3); border: 1px dashed var(--border-2);
+    border-radius: 3px; padding: 0 3px; flex: 0 0 auto;
+  }
+  .tab .x {
+    margin-left: 1px; width: 16px; height: 16px; border-radius: 4px;
+    display: grid; place-items: center; color: var(--fg-3); font-size: 14px; line-height: 1;
+  }
+  .tab:hover .x { background: var(--hover); color: var(--fg); }
+  .tab.add { width: 34px; justify-content: center; padding: 0; color: var(--fg-3); border-right: 0; font-size: 16px; }
+  .tab.add:hover { background: var(--hover); color: var(--fg); }
+  .tabspacer { flex: 1; }
+  .winbtns { display: flex; align-items: center; padding-right: 2px; }
+  .winbtns i {
+    width: 42px; height: 40px; display: grid; place-items: center;
+    color: var(--fg-3); font-style: normal; font-size: 12px;
+  }
+  .winbtns i:hover { background: var(--hover); color: var(--fg); }
+  .winbtns i.close:hover { background: #e81123; color: #fff; }
+
+  /* ---------- 主体 ---------- */
+  .body { flex: 1; display: flex; min-height: 0; }
+  .vres { flex: 0 0 5px; width: 5px; margin: 0 -2px; z-index: 9; cursor: col-resize; position: relative; background: transparent; }
+  .vres::after { content: ""; position: absolute; top: 0; bottom: 0; left: 2px; width: 1px; background: transparent; transition: background .12s ease; }
+  .vres:hover::after, body.dragging .vres::after { background: var(--accent); }
+
+  /* ---------- 侧栏：文档库 ---------- */
+  .side {
+    width: 240px; flex: 0 0 auto; background: var(--side); border-right: 1px solid var(--border);
+    display: flex; flex-direction: column; min-height: 0; overflow: hidden; user-select: none;
+  }
+  .lib-hd {
+    height: 36px; flex: 0 0 36px; display: flex; align-items: center;
+    padding: 0 6px 0 12px; white-space: nowrap;
+  }
+  .lib-hd b { font-size: 12px; font-weight: 600; letter-spacing: .3px; }
+  .lib-hd .sp { flex: 1; }
+  .lib-hd .ic { width: 24px; height: 24px; border-radius: 5px; display: grid; place-items: center; color: var(--fg-3); font-size: 14px; }
+  .lib-hd .ic:hover { background: var(--hover); color: var(--fg); }
+  .lib-acts { display: flex; gap: 5px; padding: 0 8px 8px; }
+  .lib-acts button {
+    flex: 1; height: 27px; border-radius: 5px; border: 1px solid var(--border-2);
+    background: var(--win); color: var(--fg-2); font: 12px var(--sans); cursor: pointer;
+    display: flex; align-items: center; justify-content: center; gap: 4px;
+  }
+  .lib-acts button:hover { background: var(--hover); color: var(--fg); }
+  .lib-acts button.imp { border-color: var(--border-2); }
+  .search { padding: 0 8px 8px; }
+  .search input {
+    width: 100%; height: 27px; border: 1px solid var(--border-2); border-radius: 5px;
+    background: var(--win); color: var(--fg); font: 11.5px var(--sans); padding: 0 8px; outline: none;
+  }
+  .search input::placeholder { color: var(--fg-3); }
+  .search input:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+
+  .lib { flex: 1; overflow: auto; padding: 2px 0 10px; font-size: 12.5px; }
+  .sec {
+    display: flex; align-items: center; gap: 6px; height: 24px; padding: 0 10px;
+    margin-top: 6px; font-size: 10.5px; letter-spacing: .5px; color: var(--fg-3); text-transform: uppercase;
+  }
+  .sec .n { margin-left: auto; font-family: var(--mono); font-size: 10px; letter-spacing: 0; }
+  .cat {
+    display: flex; align-items: center; gap: 6px; height: 26px; padding: 0 10px 0 8px;
+    color: var(--fg-2); border-left: 2px solid transparent; white-space: nowrap;
+  }
+  .cat:hover { background: var(--hover); color: var(--fg); }
+  .cat .chev { width: 12px; text-align: center; font-size: 9px; color: var(--fg-3); flex: 0 0 12px; }
+  .cat .n { margin-left: auto; font-family: var(--mono); font-size: 10px; color: var(--fg-3); }
+  .doc {
+    display: flex; align-items: center; gap: 6px; height: 27px;
+    padding: 0 10px 0 28px; color: var(--fg-2); border-left: 2px solid transparent;
+    white-space: nowrap; cursor: default;
+  }
+  .doc:hover { background: var(--hover); color: var(--fg); }
+  .doc.sel { background: var(--accent-soft); color: var(--accent); border-left-color: var(--accent); font-weight: 500; }
+  .doc .nm { overflow: hidden; text-overflow: ellipsis; }
+  .doc .flag { margin-left: auto; display: flex; align-items: center; gap: 4px; flex: 0 0 auto; }
+  .doc .mdot { width: 6px; height: 6px; border-radius: 50%; background: var(--mod); }
+  .doc .ldot { width: 9px; height: 9px; color: var(--fg-3); font-size: 9px; }
+  .doc.mod { color: var(--fg); }
+  .doc.mod.sel { color: var(--accent); }
+  .doc .tchk {
+    font-size: 9px; color: var(--fg-3); border: 1px dashed var(--border-2);
+    border-radius: 3px; padding: 0 3px; flex: 0 0 auto;
+  }
+  .doc.dashed { border-bottom: 1px dashed var(--border); }
+  .lib-hint { padding: 8px 12px 2px; font-size: 11px; color: var(--fg-3); line-height: 1.6; }
+  .cat.l2 { padding-left: 20px; }
+  .doc.l2 { padding-left: 32px; }
+  .doc.l3 { padding-left: 46px; }
+  .ai-hd .clear {
+    font-size: 10.5px; color: var(--fg-3); border: 1px solid transparent;
+    border-radius: 4px; padding: 2px 5px; cursor: default; white-space: nowrap;
+  }
+  .ai-hd .clear:hover { background: var(--hover); color: var(--fg); border-color: var(--border); }
+  .stat { display: grid; grid-template-columns: repeat(4, 1fr); gap: 8px; }
+  .stat div { background: var(--side); border: 1px solid var(--border); border-radius: 7px; padding: 8px 10px; }
+  .stat b { display: block; font-size: 14px; font-weight: 600; color: var(--fg); font-family: var(--mono); }
+  .stat span { font-size: 10.5px; color: var(--fg-3); }
+  .field input[readonly] { color: var(--fg-3); background: var(--side); }
+  #setLib { display: none; }
+  #chatCleared { display: none; }
+  body.chat-cleared #chatCleared { display: block; }
+  body.chat-cleared .msg { display: none; }
+
+  /* ---------- 编辑区 ---------- */
+  .pane { flex: 1; min-width: 0; display: flex; flex-direction: column; background: var(--pane); position: relative; }
+
+  .tempbar {
+    display: none; align-items: center; gap: 8px; padding: 6px 12px;
+    font-size: 11.5px; color: var(--fg-2); background: var(--side);
+    border-bottom: 1px solid var(--border);
+  }
+  .tempbar .tag {
+    font-size: 10px; color: var(--fg-3); border: 1px dashed var(--border-2);
+    border-radius: 3px; padding: 0 4px;
+  }
+  .tempbar b { font-weight: 600; color: var(--fg); }
+  .tempbar .sp { flex: 1; }
+  .tempbar button {
+    height: 24px; padding: 0 9px; border-radius: 5px; border: 1px solid var(--border-2);
+    background: var(--win); color: var(--fg-2); font: 11.5px var(--sans); cursor: pointer;
+  }
+  .tempbar button.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+  .banner {
+    display: none; align-items: center; gap: 10px; padding: 7px 14px; font-size: 12px;
+    background: var(--warn-bg); color: var(--warn-fg); border-bottom: 1px solid var(--warn-bd);
+  }
+  .banner b { font-weight: 600; }
+  .banner .sp { flex: 1; }
+
+  .editor { flex: 1; min-height: 0; display: flex; overflow: hidden; position: relative; }
+  .gutter {
+    flex: 0 0 52px; padding: 14px 10px 40px 0; text-align: right;
+    font-family: var(--mono); font-size: 12.5px; line-height: 23px; color: var(--fg-3); user-select: none;
+  }
+  .gutter div.cur { color: var(--fg-2); }
+  .code {
+    flex: 1; padding: 14px 28px 40px 8px; overflow: auto;
+    font-family: var(--mono); font-size: 13px; line-height: 23px; color: var(--fg);
+    white-space: pre; tab-size: 2;
+  }
+  .code .line { min-height: 23px; }
+  .code .curline { background: rgba(127, 127, 127, .055); margin: 0 -28px 0 -8px; padding: 0 28px 0 8px; }
+  .h1 { color: var(--s-head); font-weight: 600; }
+  .quote { color: var(--s-com); font-style: italic; }
+  .bullet { color: var(--fg-3); }
+  .done { color: var(--fg-3); }
+  .codechip { background: var(--s-code); border-radius: 3px; padding: 1px 4px; color: var(--s-str); font-size: 12.5px; }
+  .fence { color: var(--fg-3); }
+  .kw { color: var(--s-kw); }
+  .fn { color: var(--s-fn); }
+  .com { color: var(--s-com); font-style: italic; }
+  .link { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+  .bold { font-weight: 700; }
+  .sel { background: var(--sel); border-radius: 2px; }
+  .caret { display: inline-block; width: 1.5px; height: 15px; background: var(--accent); vertical-align: -3px; margin-left: 1px; }
+  .caret.blink { animation: blink 1.1s steps(1) infinite; }
+  @keyframes blink { 50% { opacity: 0; } }
+
+  /* ---------- AI 侧栏 ---------- */
+  .aipanel {
+    width: 356px; flex: 0 0 auto; background: var(--side); border-left: 1px solid var(--border);
+    display: none; flex-direction: column; min-height: 0; overflow: hidden;
+  }
+  body.ai-open .aipanel { display: flex; }
+  body.ai-open #aiRes { display: block; }
+  #aiRes { display: none; }
+
+  .ai-hd {
+    height: 38px; flex: 0 0 38px; display: flex; align-items: center; gap: 7px;
+    padding: 0 7px 0 12px; border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  .ai-hd b { font-size: 12.5px; font-weight: 600; color: var(--fg); }
+  .ai-hd .mdl { font-family: var(--mono); font-size: 10px; color: var(--fg-3); border: 1px solid var(--border); border-radius: 4px; padding: 1px 5px; }
+  .ai-hd .sp { flex: 1; }
+  .ai-hd .hk { font-family: var(--mono); font-size: 9.5px; color: var(--fg-3); }
+  .ai-hd .x { width: 22px; height: 22px; border-radius: 4px; display: grid; place-items: center; color: var(--fg-3); font-size: 14px; cursor: default; }
+  .ai-hd .x:hover { background: var(--hover); color: var(--fg); }
+
+  .ai-ctx {
+    display: flex; align-items: center; gap: 6px; padding: 7px 12px;
+    font-size: 11px; color: var(--fg-3); border-bottom: 1px solid var(--border); white-space: nowrap;
+  }
+  .ai-ctx .chip {
+    background: var(--win); border: 1px solid var(--border); border-radius: 4px;
+    padding: 0 5px; font-family: var(--mono); font-size: 10px; color: var(--fg-2);
+    max-width: 130px; overflow: hidden; text-overflow: ellipsis;
+  }
+  .ai-ctx .sp { flex: 1; }
+  .ai-ctx .lock {
+    display: flex; align-items: center; gap: 4px; font-size: 10.5px; color: #2f7d4f;
+  }
+  .ai-ctx .lock .sw { transform: scale(.82); transform-origin: right center; }
+  .sw {
+    width: 26px; height: 15px; border-radius: 999px; background: var(--border-2);
+    position: relative; flex: 0 0 26px; transition: background .12s ease;
+  }
+  .sw::after {
+    content: ""; position: absolute; top: 2px; left: 2px; width: 11px; height: 11px;
+    border-radius: 50%; background: #fff; transition: transform .12s ease;
+    box-shadow: 0 1px 2px rgba(0, 0, 0, .2);
+  }
+  .sw.on { background: #2ea043; }
+  .sw.on::after { transform: translateX(11px); }
+  body.dark .sw::after { background: #eef1f5; }
+
+  .chat { flex: 1; min-height: 0; overflow: auto; padding: 12px 12px 6px; display: flex; flex-direction: column; gap: 12px; background: var(--win); }
+  .msg { font-size: 12.5px; line-height: 20px; }
+  .msg .role {
+    font-size: 10.5px; color: var(--fg-3); margin-bottom: 4px; letter-spacing: .3px;
+    display: flex; align-items: center; gap: 6px;
+  }
+  .msg.user .role { color: var(--fg-3); }
+  .msg.user .txt {
+    background: var(--side); border: 1px solid var(--border); border-radius: 6px;
+    padding: 7px 9px; color: var(--fg);
+  }
+  .msg.ai .txt { font-family: var(--mono); font-size: 12px; line-height: 20px; color: var(--fg); }
+  .msg.ai .txt p { margin: 0 0 6px; }
+  .msg.ai .txt p:last-child { margin-bottom: 0; }
+  .ops { display: flex; gap: 4px; margin-top: 8px; flex-wrap: wrap; }
+  .ops span {
+    font-size: 11px; color: var(--fg-2); border: 1px solid var(--border-2);
+    border-radius: 4px; padding: 2px 7px; cursor: default; background: var(--win);
+  }
+  .ops span:hover { background: var(--hover); }
+  .ops span.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .snap {
+    margin-top: 7px; font-size: 10.5px; color: var(--fg-3);
+    display: flex; align-items: center; gap: 5px;
+  }
+  .snap .ldot { width: 9px; height: 9px; border-radius: 50%; background: var(--mod-soft); border: 2px solid var(--mod); }
+  .snap a { color: var(--accent); text-decoration: none; cursor: pointer; }
+  .stream-dot { display: inline-block; width: 5px; height: 5px; border-radius: 50%; background: var(--accent); animation: pulse 1.2s ease-in-out infinite; }
+  @keyframes pulse { 0%, 100% { opacity: .25; } 50% { opacity: 1; } }
+  .blocked {
+    border: 1px dashed var(--border-2); border-radius: 6px; padding: 10px;
+    font-size: 11.5px; color: var(--fg-3); line-height: 1.6; text-align: center;
+  }
+
+  .ai-input { padding: 8px 10px 10px; border-top: 1px solid var(--border); background: var(--side); }
+  .ai-input .box {
+    display: flex; align-items: flex-end; gap: 6px; border: 1px solid var(--border-2);
+    border-radius: 7px; background: var(--win); padding: 5px 6px 5px 8px;
+  }
+  .ai-input .box:focus-within { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .ai-input textarea {
+    flex: 1; min-width: 0; height: 22px; max-height: 88px; resize: none; border: 0; outline: none;
+    background: transparent; color: var(--fg); font: 12px/20px var(--sans); padding: 1px 0;
+  }
+  .ai-input .send {
+    height: 24px; padding: 0 9px; border-radius: 5px; border: 1px solid var(--accent);
+    background: var(--accent); color: #fff; font: 11.5px var(--sans); cursor: pointer;
+  }
+  .ai-input .hintline { margin-top: 6px; font-size: 10px; color: var(--fg-3); display: flex; gap: 6px; }
+
+  /* ---------- 状态栏 ---------- */
+  .status {
+    flex: 0 0 28px; height: 28px; display: flex; align-items: center; padding: 0 6px;
+    background: var(--tabbar); border-top: 1px solid var(--border);
+    font-size: 11.5px; color: var(--fg-2); user-select: none;
+  }
+  .status .it { padding: 0 7px; height: 20px; display: flex; align-items: center; gap: 5px; border-radius: 4px; white-space: nowrap; }
+  .status .it.clk:hover { background: var(--hover); color: var(--fg); cursor: pointer; }
+  .status .it.on { background: var(--accent-soft); color: var(--accent); }
+  .status .it.dirty { color: var(--mod); }
+  .status .sep { flex: 0 0 1px; width: 1px; height: 11px; background: var(--border-2); margin: 0 1px; }
+  .status .sp { flex: 1; }
+  .status .ok { width: 5px; height: 5px; border-radius: 50%; background: #2ea043; }
+  .status .mono { font-family: var(--mono); font-size: 11px; }
+  .status .mdot { width: 6px; height: 6px; border-radius: 50%; background: var(--mod); }
+  .status kbd { font-size: 9.5px; padding: 0 4px; border-bottom-width: 1px; }
+
+  /* ---------- 弹层 ---------- */
+  .scrim {
+    position: absolute; inset: 0; background: rgba(16, 20, 28, .34);
+    display: none; align-items: center; justify-content: center; z-index: 30;
+    backdrop-filter: blur(1px);
+  }
+  .modal {
+    background: var(--win); border: 1px solid var(--border-2); border-radius: 10px;
+    box-shadow: 0 26px 64px rgba(10, 14, 22, .3); width: 460px; overflow: hidden;
+  }
+  .modal.wide { width: 740px; }
+  .m-hd {
+    padding: 13px 16px; border-bottom: 1px solid var(--border);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .m-hd b { font-size: 13.5px; font-weight: 600; }
+  .m-hd .sp { flex: 1; }
+  .m-hd .x { color: var(--fg-3); width: 22px; height: 22px; display: grid; place-items: center; border-radius: 4px; }
+  .m-hd .x:hover { background: var(--hover); color: var(--fg); }
+  .m-bd { padding: 14px 16px 16px; }
+  .m-ft {
+    padding: 10px 16px; border-top: 1px solid var(--border); background: var(--side);
+    display: flex; align-items: center; gap: 8px;
+  }
+  .m-ft .sp { flex: 1; }
+  .btn {
+    height: 29px; padding: 0 13px; border-radius: 6px; border: 1px solid var(--border-2);
+    background: var(--win); color: var(--fg-2); font: 12.5px var(--sans); cursor: pointer;
+  }
+  .btn:hover { background: var(--hover); }
+  .btn.primary { background: var(--accent); border-color: var(--accent); color: #fff; }
+  .btn.ghost2 { border-color: transparent; background: transparent; }
+
+  .field { margin-bottom: 12px; }
+  .field:last-child { margin-bottom: 0; }
+  .field > label { display: block; font-size: 11.5px; color: var(--fg-2); margin-bottom: 5px; }
+  .field .desc { font-size: 10.5px; color: var(--fg-3); margin-top: 5px; line-height: 1.5; }
+  .field input[type="text"], .field input[type="password"], .field select {
+    width: 100%; height: 30px; border: 1px solid var(--border-2); border-radius: 6px;
+    background: var(--win); color: var(--fg); font: 12.5px var(--sans); padding: 0 9px; outline: none;
+  }
+  .field input:focus, .field select:focus { border-color: var(--accent); box-shadow: 0 0 0 3px var(--accent-soft); }
+  .row2 { display: flex; gap: 10px; }
+  .row2 > * { flex: 1; min-width: 0; }
+  .inline { display: flex; align-items: center; gap: 8px; }
+  .inline .sp { flex: 1; }
+
+  /* 导入 */
+  .drop {
+    border: 1px dashed var(--border-2); border-radius: 8px; padding: 18px;
+    text-align: center; color: var(--fg-3); font-size: 12px; background: var(--side);
+  }
+  .drop b { color: var(--fg-2); font-weight: 500; }
+  .imp-list { margin-top: 10px; border: 1px solid var(--border); border-radius: 7px; overflow: hidden; }
+  .imp-row {
+    display: flex; align-items: center; gap: 10px; padding: 7px 10px; font-size: 12px;
+    border-bottom: 1px solid var(--border);
+  }
+  .imp-row:last-child { border-bottom: 0; }
+  .imp-row .nm { flex: 1; min-width: 0; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+  .imp-row .sz { font-family: var(--mono); font-size: 10.5px; color: var(--fg-3); }
+  .imp-row select {
+    height: 25px; border: 1px solid var(--border-2); border-radius: 5px; background: var(--win);
+    color: var(--fg-2); font: 11.5px var(--sans); padding: 0 6px; outline: none;
+  }
+  .imp-tip { display: flex; align-items: center; gap: 6px; margin-top: 10px; font-size: 11px; color: var(--fg-3); }
+  .imp-tip a { color: var(--accent); text-decoration: none; }
+
+  /* 设置 */
+  .settings { display: flex; min-height: 388px; }
+  .set-nav {
+    width: 148px; flex: 0 0 148px; border-right: 1px solid var(--border);
+    background: var(--side); padding: 10px 8px;
+  }
+  .set-nav div {
+    padding: 7px 9px; border-radius: 6px; font-size: 12px; color: var(--fg-2); margin-bottom: 2px;
+  }
+  .set-nav div:hover { background: var(--hover); }
+  .set-nav div.on { background: var(--accent-soft); color: var(--accent); font-weight: 500; }
+  .set-body { flex: 1; padding: 14px 16px 16px; min-width: 0; overflow: auto; }
+  .set-body h4 { margin: 0 0 12px; font-size: 12.5px; font-weight: 600; }
+  .set-body h5 {
+    margin: 16px 0 8px; font-size: 10.5px; letter-spacing: .5px; text-transform: uppercase;
+    color: var(--fg-3); font-weight: 500;
+  }
+  .seg2 { display: flex; gap: 2px; padding: 3px; background: var(--side); border: 1px solid var(--border); border-radius: 7px; width: fit-content; }
+  .seg2 span { font-size: 11.5px; padding: 4px 10px; border-radius: 5px; color: var(--fg-2); }
+  .seg2 span.on { background: var(--win); color: var(--fg); box-shadow: 0 1px 2px rgba(0, 0, 0, .08); font-weight: 500; }
+  .privacy {
+    background: var(--side); border: 1px solid var(--border); border-radius: 7px;
+    padding: 9px 11px; font-size: 11px; color: var(--fg-2); line-height: 1.7;
+  }
+  .privacy b { color: var(--fg); font-weight: 600; }
+
+  .hint { width: min(1210px, 96vw); font-size: 11.5px; color: var(--fg-3); margin: 0; }
+
+  /* ---------- 场景 ---------- */
+  body[data-scene="ai"] #selbar { display: flex; }
+  body[data-scene="temp"] #tempbar { display: flex; }
+  body[data-scene="temp"] #codeDoc, body[data-scene="temp"] #gutDoc { display: none; }
+  body[data-scene="temp"] #codeTemp, body[data-scene="temp"] #gutTemp { display: block; }
+  #codeTemp, #gutTemp { display: none; }
+  body[data-scene="save"] #scrimSave,
+  body[data-scene="import"] #scrimImport,
+  body[data-scene="settings"] #scrimSettings,
+  body[data-scene="backup"] #scrimSettings { display: flex; }
+  body[data-scene="backup"] #setLib { display: block; }
+  body[data-scene="backup"] #setAI { display: none; }
+
+  .selbar {
+    display: none; position: absolute; z-index: 6; background: var(--win);
+    border: 1px solid var(--border-2); border-radius: 7px;
+    box-shadow: 0 8px 22px rgba(18, 24, 38, .16); padding: 3px; gap: 1px; align-items: center;
+  }
+  .selbar span { font-size: 12px; color: var(--fg-2); padding: 5px 9px; border-radius: 4px; white-space: nowrap; }
+  .selbar span:hover { background: var(--hover); color: var(--fg); }
+  .selbar span.div { width: 1px; height: 14px; background: var(--border); padding: 0; margin: 0 3px; }
+</style>
+</head>
+<body data-scene="main">
+
+  <div class="demo">
+    <div class="brand"><b>Note</b> · UI 线框图 <span>v4 · 文档库 + 临时区</span></div>
+    <div class="segs" id="segs">
+      <button data-s="main" class="on">主界面</button>
+      <button data-s="temp">临时文档</button>
+      <button data-s="ai">AI 对话</button>
+      <button data-s="save">保存到库</button>
+      <button data-s="import">导入</button>
+      <button data-s="settings">设置</button>
+      <button data-s="backup">备份迁移</button>
+    </div>
+    <button class="ghost" id="themeBtn">深色</button>
+  </div>
+
+  <div class="win">
+    <div class="tabbar">
+      <div class="tab active" id="tabDoc"><span class="name">编码与换行</span><span class="dot"></span></div>
+      <div class="tab" id="tabTemp"><span class="name">会议记录.txt</span><span class="tchip">临时</span><span class="x">×</span></div>
+      <div class="tab"><span class="name">build.log</span><span class="x">×</span></div>
+      <div class="tab add" title="新建临时文档">+</div>
+      <div class="tabspacer"></div>
+      <div class="winbtns"><i>—</i><i>▢</i><i class="close">×</i></div>
+    </div>
+
+    <div class="body">
+      <!-- 文档库侧栏 -->
+      <aside class="side" id="side">
+        <div class="lib-hd">
+          <b>文档库</b>
+          <span class="sp"></span>
+          <span class="ic" title="更多">⋯</span>
+        </div>
+        <div class="lib-acts">
+          <button title="新建临时文档">＋ 新建</button>
+          <button class="imp" title="导入文件到文档库">⬆ 导入</button>
+        </div>
+        <div class="search">
+          <input placeholder="搜索文档…" />
+        </div>
+        <div class="lib">
+          <div class="sec">常驻文档 <span class="n">27</span></div>
+
+          <div class="cat"><span class="chev">▾</span><span>技术笔记</span><span class="n">12</span></div>
+          <div class="cat l2"><span class="chev">▾</span><span>前端</span><span class="n">4</span></div>
+          <div class="doc l2"><span class="nm">CSS 变量与主题</span></div>
+          <div class="doc l2"><span class="nm">CodeMirror 扩展</span></div>
+          <div class="cat l2"><span class="chev">▸</span><span>后端</span><span class="n">3</span></div>
+          <div class="doc l2 sel"><span class="nm">编码与换行</span><span class="flag"><span class="mdot" title="已修改"></span></span></div>
+          <div class="doc l2 mod"><span class="nm">Tauri IPC 备忘</span><span class="flag"><span class="mdot" title="已修改"></span></span></div>
+          <div class="doc l2"><span class="nm">Git 常用命令</span></div>
+
+          <div class="cat"><span class="chev">▸</span><span>项目</span><span class="n">5</span></div>
+          <div class="cat"><span class="chev">▸</span><span>读书摘录</span><span class="n">0</span></div>
+          <div class="cat"><span class="chev">▸</span><span>未分类</span><span class="n">8</span></div>
+
+          <div class="sec" style="margin-top:12px">临时文档 <span class="n">2</span></div>
+          <div class="doc"><span class="nm">会议记录.txt</span><span class="flag"><span class="tchk">自动保存</span></span></div>
+          <div class="doc"><span class="nm">build.log</span><span class="flag"><span class="tchk">18MB</span></span></div>
+          <div class="lib-hint">临时文档自动存在本机临时区，不进文档库，<br />也不保留 AI 会话；关闭后从临时区移除。</div>
+        </div>
+      </aside>
+
+      <div class="vres" id="sideRes" data-target="#side" data-side="left" data-min="190" data-max="420" data-dbl="240" title="拖动调节宽度 · 双击复位"></div>
+
+      <main class="pane">
+        <div class="tempbar" id="tempbar">
+          <span class="tag">临时</span>
+          <b>会议记录.txt</b>
+          <span>自动保存 0.3s 前 · 不进文档库 · 无 AI 会话记录</span>
+          <span class="sp"></span>
+          <button>导出副本…</button>
+          <button class="primary">保存到文档库</button>
+        </div>
+
+        <div class="editor">
+          <div class="gutter" id="gutDoc">
+            <div>1</div><div>2</div><div>3</div><div>4</div><div>5</div><div>6</div>
+            <div>7</div><div>8</div><div>9</div><div>10</div><div>11</div>
+            <div class="cur">12</div><div>13</div><div>14</div><div>15</div><div>16</div>
+            <div>17</div><div>18</div><div>19</div><div>20</div><div>21</div><div>22</div>
+            <div>23</div><div>24</div><div>25</div><div>26</div>
+          </div>
+
+          <div class="code" id="codeDoc">
+<div class="line"><span class="h1"># 编码与换行</span></div>
+<div class="line"> </div>
+<div class="line"><span class="quote">&gt; 用户没主动改，写回就必须和读入完全一致。</span></div>
+<div class="line"> </div>
+<div class="line"><span class="h1">## 探测顺序</span></div>
+<div class="line"> </div>
+<div class="line"><span class="bullet">1.</span> 先看 BOM：UTF-8 / UTF-16LE / UTF-16BE</div>
+<div class="line"><span class="bullet">2.</span> 无 BOM 用 <span class="codechip">chardetng</span> 猜，再实际解码验证</div>
+<div class="line"><span class="bullet">3.</span> 出现替换字符 U+FFFD 就回退 GB18030 → UTF-8</div>
+<div class="line"><span class="bullet">4.</span> 换行符取多数，混合时单独记录</div>
+<div class="line"> </div>
+<div class="line"><span class="sel">保存时不要动原编码，这是红线：</span></div>
+<div class="line"> </div>
+<div class="line curline"><span class="fence">```ts</span></div>
+<div class="line curline">  <span class="kw">const</span> doc = <span class="kw">await</span> <span class="fn">read_text_file</span>(path)</div>
+<div class="line curline">  <span class="com">// 原样带回去，不做任何转换</span></div>
+<div class="line curline">  <span class="kw">await</span> <span class="fn">write_text_file</span>(path, doc.content, {</div>
+<div class="line curline">    encoding: doc.encoding,</div>
+<div class="line curline">    lineEnding: doc.lineEnding,</div>
+<div class="line curline">  })</div>
+<div class="line curline"><span class="fence">```</span></div>
+<div class="line"> </div>
+<div class="line"><span class="bold">**结论**</span>：编码是文件的属性，不是编辑器的偏好。</div>
+          </div>
+
+          <div class="gutter" id="gutTemp">
+            <div>1</div><div>2</div><div>3</div><div>4</div><div>5</div><div>6</div>
+            <div>7</div><div>8</div><div>9</div><div>10</div><div>11</div>
+            <div class="cur">12</div><div>13</div><div>14</div><div>15</div><div>16</div>
+            <div>17</div><div>18</div>
+          </div>
+
+          <div class="code" id="codeTemp">
+<div class="line">产品评审 · 10 月 28 日</div>
+<div class="line"> </div>
+<div class="line">结论：</div>
+<div class="line">1. 文档分临时和常驻两种，临时的不落盘。</div>
+<div class="line">2. 常驻文档进本地库，按分类归档，不再显示路径。</div>
+<div class="line">3. AI 只针对当前文档，不跨文档取上下文。</div>
+<div class="line">4. 导入是单独入口，导入时顺手分类。</div>
+<div class="line">5. 导出就是复制一份到桌面或指定位置。</div>
+<div class="line"> </div>
+<div class="line">待定：</div>
+<div class="line">- 分类能否嵌套？<span class="caret blink"></span></div>
+<div class="line">- AI 修改前快照保留几份？</div>
+<div class="line"> </div>
+<div class="line">（这份文件来自桌面，关闭后内容不保留）</div>
+          </div>
+
+          <div class="selbar" id="selbar" style="top: 212px; left: 262px;">
+            <span>润色</span><span>摘要</span><span>翻译</span><span>续写</span>
+            <span class="div"></span>
+            <span>问 AI…</span>
+          </div>
+        </div>
+      </main>
+
+      <div class="vres" id="aiRes" data-target="#aipanel" data-side="right" data-min="300" data-max="560" data-dbl="356" title="拖动调节宽度 · 双击复位"></div>
+
+      <!-- AI 侧栏：单文档对话 -->
+      <aside class="aipanel" id="aipanel">
+        <div class="ai-hd">
+          <b>AI</b>
+          <span class="mdl">deepseek-chat</span>
+          <span class="sp"></span>
+          <span class="clear" id="aiClear" title="清除本文档的对话上下文">清空会话</span>
+          <span class="x" id="aiClose">×</span>
+        </div>
+        <div class="ai-ctx">
+          <span class="chip">编码与换行</span>
+          <span>仅本文档</span>
+          <span class="sp"></span>
+          <span class="lock"><span>允许读取</span><span class="sw on"></span></span>
+        </div>
+
+        <div class="chat" id="chat">
+          <div class="msg user">
+            <div class="role">你 · 22:38</div>
+            <div class="txt">把「探测顺序」那段压到三条以内，别丢 GB18030 回退。</div>
+          </div>
+          <div class="msg ai">
+            <div class="role"><span class="stream-dot"></span>AI · 已读 2.1 KB</div>
+            <div class="txt">
+              <p>1. 有 BOM 按 BOM 定编码（UTF-8 / UTF-16LE / UTF-16BE）。</p>
+              <p>2. 无 BOM 用 chardetng 猜，解码后校验 U+FFFD。</p>
+              <p>3. 校验失败按 GB18030 → UTF-8 顺序回退。<span class="caret blink"></span></p>
+            </div>
+            <div class="ops">
+              <span class="primary">替换选中</span><span>插入到光标后</span><span>复制</span><span>重试</span>
+            </div>
+            <div class="snap"><span class="ldot"></span>修改前已存快照 · 22:39 · <a>查看</a></div>
+          </div>
+          <div class="msg user">
+            <div class="role">你 · 22:40</div>
+            <div class="txt">第二条再短一点。</div>
+          </div>
+          <div class="blocked" id="chatCleared">
+            上下文已清空。<br />本文档的下一轮对话将从头开始，历史不可恢复。
+          </div>
+        </div>
+
+        <div class="ai-input">
+          <div class="box">
+            <textarea placeholder="继续问，或输入修改要求…"></textarea>
+            <button class="send">发送</button>
+          </div>
+          <div class="hintline">
+            <span>Enter 发送 · Shift+Enter 换行</span>
+            <span style="margin-left:auto">对话只属于本文档</span>
+          </div>
+        </div>
+      </aside>
+    </div>
+
+    <footer class="status">
+      <span class="it clk" title="所属分类">技术笔记</span>
+      <span class="sep"></span>
+      <span class="it clk">UTF-8</span>
+      <span class="sep"></span>
+      <span class="it clk">CRLF</span>
+      <span class="sep"></span>
+      <span class="it clk">Markdown</span>
+      <span class="sep"></span>
+      <span class="it mono">行 12, 列 8</span>
+      <span class="sep"></span>
+      <span class="it mono">2.1 KB</span>
+      <span class="sp"></span>
+      <span class="it dirty"><span class="mdot"></span>已修改</span>
+      <span class="sep"></span>
+      <span class="it clk" id="aiToggle"><span class="ok"></span>AI</span>
+      <span class="sep"></span>
+      <span class="it clk" id="setToggle" title="设置">⚙</span>
+    </footer>
+
+    <!-- 保存到文档库 -->
+    <div class="scrim" id="scrimSave">
+      <div class="modal">
+        <div class="m-hd"><b>保存到文档库</b><span class="sp"></span><span class="x">×</span></div>
+        <div class="m-bd">
+          <div class="field">
+            <label>文档名称</label>
+            <input type="text" value="会议记录" />
+            <div class="desc">名称在库内唯一，重名会自动加序号。</div>
+          </div>
+          <div class="field">
+            <label>分类</label>
+            <select>
+              <optgroup label="技术笔记">
+                <option>技术笔记（根）</option>
+                <option>技术笔记 / 前端</option>
+                <option>技术笔记 / 后端</option>
+              </optgroup>
+              <optgroup label="项目">
+                <option>项目（根）</option>
+                <option>项目 / 归档</option>
+              </optgroup>
+              <option>读书摘录</option>
+              <option selected>未分类</option>
+            </select>
+            <div class="desc">支持嵌套分类；保存后可在侧栏按层级找到，不需要记住文件位置。</div>
+          </div>
+        </div>
+        <div class="m-ft">
+          <span class="sp"></span>
+          <button class="btn">取消</button>
+          <button class="btn primary">保存</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 导入 -->
+    <div class="scrim" id="scrimImport">
+      <div class="modal wide" style="width:560px">
+        <div class="m-hd"><b>导入到文档库</b><span class="sp"></span><span class="x">×</span></div>
+        <div class="m-bd">
+          <div class="drop">把文件拖到这里，或 <b>选择文件…</b>（支持 .md .txt .log .json）</div>
+          <div class="imp-list">
+            <div class="imp-row">
+              <span class="nm">架构笔记.md</span><span class="sz">12 KB</span>
+              <select><option selected>未分类</option><option>技术笔记</option><option>项目</option></select>
+            </div>
+            <div class="imp-row">
+              <span class="nm">需求.md</span><span class="sz">8 KB</span>
+              <select><option>未分类</option><option selected>项目</option><option>技术笔记</option></select>
+            </div>
+            <div class="imp-row">
+              <span class="nm">index.ts</span><span class="sz">3 KB</span>
+              <select><option selected>未分类</option><option>技术笔记</option><option>项目</option></select>
+            </div>
+          </div>
+          <div class="imp-tip">
+            <a>全部导入到未分类</a>
+            <span>·</span>
+            <span>导入是复制入库，原文件保留在原处</span>
+          </div>
+        </div>
+        <div class="m-ft">
+          <span class="sp"></span>
+          <button class="btn">取消</button>
+          <button class="btn primary">导入 3 个</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- 设置 -->
+    <div class="scrim" id="scrimSettings">
+      <div class="modal wide">
+        <div class="m-hd"><b>设置</b><span class="sp"></span><span class="x">×</span></div>
+        <div class="settings">
+          <div class="set-nav">
+            <div>通用</div>
+            <div id="navAI" class="on">AI 助理</div>
+            <div>编辑器</div>
+            <div id="navLib">文档库</div>
+            <div>快捷键</div>
+          </div>
+
+          <div class="set-body" id="setAI">
+            <h4>模型服务</h4>
+            <div class="field">
+              <div class="seg2"><span class="on">DeepSeek</span><span>通义千问</span><span>本地 Ollama</span></div>
+            </div>
+            <div class="field">
+              <label>Base URL</label>
+              <input type="text" value="https://api.deepseek.com/v1" />
+            </div>
+            <div class="row2">
+              <div class="field">
+                <label>API Key</label>
+                <input type="password" value="sk-1234567890abcdef" />
+                <div class="desc">存 Windows 凭据管理器，界面不回显、不写日志。</div>
+              </div>
+              <div class="field">
+                <label>模型</label>
+                <select><option selected>deepseek-chat</option><option>deepseek-reasoner</option></select>
+              </div>
+            </div>
+
+            <h5>请求范围</h5>
+            <div class="seg2"><span class="on">仅选中文本</span><span>整篇文档</span></div>
+            <div class="desc" style="margin-top:6px">没有选中时自动降级为当前段落，不会发送整篇。</div>
+
+            <h5>数据与隐私</h5>
+            <div class="privacy">
+              文档内容只在发起对话时发送，不做后台预读、不建索引、不上传其他文档。<br />
+              标记为 <b>不允许 AI 读取</b> 的文档，请求会直接拦在本地。
+            </div>
+          </div>
+
+          <div class="set-body" id="setLib">
+            <h4>库位置</h4>
+            <div class="field">
+              <div class="inline">
+                <input type="text" value="默认位置（系统应用数据目录）" readonly />
+                <button class="btn">更改位置…</button>
+              </div>
+              <div class="desc">迁移会先把整库复制到新位置，校验通过后再切换指向；旧库默认保留，确认无误后自行删除。</div>
+            </div>
+
+            <h5>占用</h5>
+            <div class="stat">
+              <div><b>27</b><span>篇文档</span></div>
+              <div><b>6</b><span>个分类</span></div>
+              <div><b>128 MB</b><span>正文与索引</span></div>
+              <div><b>42 MB</b><span>版本快照</span></div>
+            </div>
+
+            <h5>备份与恢复</h5>
+            <div class="field">
+              <div class="inline">
+                <button class="btn primary">备份到文件夹…</button>
+                <button class="btn">从备份恢复…</button>
+              </div>
+              <div class="desc">备份包含正文、分类索引、AI 会话与版本快照。恢复前会自动把当前库另存一份，避免覆盖后无法退回。</div>
+            </div>
+
+            <h5>维护</h5>
+            <div class="field">
+              <div class="inline">
+                <button class="btn">清理旧版本快照</button>
+                <span class="desc" style="margin:0">保留每篇最近 20 份</span>
+              </div>
+            </div>
+          </div>
+        </div>
+        <div class="m-ft">
+          <button class="btn ghost2">测试连接</button>
+          <span class="sp"></span>
+          <button class="btn">取消</button>
+          <button class="btn primary">保存</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <p class="hint">拖两侧分隔线调宽（双击复位）· <kbd>Ctrl</kbd>+<kbd>/</kbd> 开关 AI · 顶部切换状态</p>
+
+<script>
+  const body = document.body;
+  const segs = document.getElementById('segs');
+  const tabDoc = document.getElementById('tabDoc');
+  const tabTemp = document.getElementById('tabTemp');
+  const aiToggle = document.getElementById('aiToggle');
+
+  function setScene(s) {
+    body.dataset.scene = s;
+    const openAi = s === 'ai';
+    body.classList.toggle('ai-open', openAi);
+    aiToggle.classList.toggle('on', openAi);
+
+    const tempActive = s === 'temp';
+    tabDoc.classList.toggle('active', !tempActive);
+    tabTemp.classList.toggle('active', tempActive);
+
+    document.getElementById('navAI').classList.toggle('on', s === 'settings');
+    document.getElementById('navLib').classList.toggle('on', s === 'backup');
+  }
+
+  segs.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-s]');
+    if (!btn) return;
+    [...segs.children].forEach(b => b.classList.toggle('on', b === btn));
+    setScene(btn.dataset.s);
+  });
+
+  document.getElementById('themeBtn').addEventListener('click', (e) => {
+    const dark = body.classList.toggle('dark');
+    e.target.textContent = dark ? '浅色' : '深色';
+  });
+
+  function toggleAi() {
+    const open = body.classList.toggle('ai-open');
+    aiToggle.classList.toggle('on', open);
+  }
+  aiToggle.addEventListener('click', toggleAi);
+  document.getElementById('aiClose').addEventListener('click', () => {
+    body.classList.remove('ai-open');
+    aiToggle.classList.remove('on');
+  });
+  document.getElementById('aiClear').addEventListener('click', () => {
+    body.classList.add('chat-cleared');
+  });
+  document.getElementById('setToggle').addEventListener('click', () => setScene('settings'));
+  window.addEventListener('keydown', (e) => {
+    if (e.ctrlKey && e.key === '/') { e.preventDefault(); toggleAi(); }
+  });
+
+  document.querySelectorAll('.sw').forEach(sw => {
+    sw.addEventListener('click', () => sw.classList.toggle('on'));
+  });
+
+  // 拖拽调节宽度
+  document.querySelectorAll('.vres').forEach(handle => {
+    const panel = document.querySelector(handle.dataset.target);
+    const side = handle.dataset.side;
+    const min = +handle.dataset.min;
+    const max = +handle.dataset.max;
+
+    handle.addEventListener('pointerdown', (e) => {
+      e.preventDefault();
+      const startX = e.clientX;
+      const startW = panel.getBoundingClientRect().width;
+      handle.setPointerCapture(e.pointerId);
+      body.classList.add('dragging');
+      const onMove = (ev) => {
+        const dx = ev.clientX - startX;
+        let w = side === 'left' ? startW + dx : startW - dx;
+        w = Math.max(min, Math.min(max, Math.round(w)));
+        panel.style.width = w + 'px';
+        panel.style.flexBasis = w + 'px';
+      };
+      const onUp = () => {
+        body.classList.remove('dragging');
+        handle.removeEventListener('pointermove', onMove);
+        handle.removeEventListener('pointerup', onUp);
+      };
+      handle.addEventListener('pointermove', onMove);
+      handle.addEventListener('pointerup', onUp);
+    });
+
+    handle.addEventListener('dblclick', () => {
+      const w = +handle.dataset.dbl;
+      panel.style.width = w + 'px';
+      panel.style.flexBasis = w + 'px';
+    });
+  });
+</script>
+</body>
+</html>
