@@ -1,7 +1,8 @@
 import { useEffect, useRef } from "react";
 import type { EditorView } from "@codemirror/view";
 
-import { setActiveEditorView } from "../editor/activeView";
+import { markViewTab, setActiveEditorView } from "../editor/activeView";
+import { resolveEditorBackground } from "../editor/background";
 import { applyLanguage, createEditorState, createEditorView } from "../editor/createEditor";
 import { handleEditorUpdate } from "../editor/handleUpdate";
 import {
@@ -31,6 +32,8 @@ export default function EditorPane() {
   const override = activeTab?.languageOverride;
   const tier = activeTab ? tierFor(activeTab.sizeBytes, activeTab.truncated) : "full";
   const hint = tierHint(tier);
+  const editorBackground = useAppStore((state) => state.editorBackground);
+  const editorBg = resolveEditorBackground(editorBackground);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -43,6 +46,7 @@ export default function EditorPane() {
     return () => {
       const previous = prevTabIdRef.current;
       if (previous) putTabState(previous, view.state);
+      markViewTab(null);
       setActiveEditorView(null);
       view.destroy();
       viewRef.current = null;
@@ -68,6 +72,7 @@ export default function EditorPane() {
     putTabState(activeTabId, state);
     view.setState(state);
     view.focus();
+    markViewTab(activeTabId);
 
     prevTabIdRef.current = activeTabId;
 
@@ -75,6 +80,9 @@ export default function EditorPane() {
     const line = state.doc.lineAt(head);
     const store = useAppStore.getState();
     store.setCursor(line.number, head - line.from + 1);
+    store.setSelectionChars(
+      state.selection.main.empty ? 0 : state.selection.main.to - state.selection.main.from,
+    );
     store.setDocSize(state.doc.length);
   }, [activeTabId, tier]);
 
@@ -119,7 +127,11 @@ export default function EditorPane() {
   }, [activeTabId, filename, override, tier]);
 
   return (
-    <main className={styles.pane}>
+    <main
+      className={styles.pane}
+      data-editor-tone={editorBg.tone ?? undefined}
+      style={editorBg.color ? { backgroundColor: editorBg.color } : undefined}
+    >
       {hint && <div className={styles.tierBar}>{hint}</div>}
       <div ref={hostRef} className={styles.editorHost} />
     </main>

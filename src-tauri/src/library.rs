@@ -83,6 +83,78 @@ pub struct BackupReport {
     pub categories: usize,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct ChatMessage {
+    pub role: String,
+    pub content: String,
+    pub ts: i64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoverySnap {
+    pub doc_id: String,
+    pub title: String,
+    pub content: String,
+    pub encoding: String,
+    pub has_bom: bool,
+    pub line_ending: String,
+    pub saved_at: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RecoveryMeta {
+    pub doc_id: String,
+    pub title: String,
+    pub saved_at: i64,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionMeta {
+    pub id: String,
+    pub doc_id: String,
+    /// before-ai / before-restore / manual
+    pub source: String,
+    pub created_at: i64,
+    pub size_bytes: u64,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionSnap {
+    pub id: String,
+    pub doc_id: String,
+    pub source: String,
+    pub created_at: i64,
+    pub encoding: String,
+    pub has_bom: bool,
+    pub line_ending: String,
+    pub content: String,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct VersionRestoreResult {
+    pub content: String,
+    pub encoding: String,
+    pub has_bom: bool,
+    pub line_ending: String,
+    pub meta: DocMeta,
+    /// 还原前自动留下的快照。
+    pub snapshot: VersionMeta,
+}
+
+/// 恢复目录超过这个体积时按最旧清理（PROMPT §5.5）。
+pub const RECOVERY_LIMIT_BYTES: u64 = 100 * 1024 * 1024;
+/// 每篇文档保留的版本数。
+pub const VERSIONS_PER_DOC: usize = 20;
+/// 版本目录总占用上限。
+pub const VERSIONS_LIMIT_BYTES: u64 = 200 * 1024 * 1024;
+
 #[derive(Debug, Clone)]
 pub struct WorkspacePaths {
     pub app_data: PathBuf,
@@ -151,6 +223,10 @@ pub fn ensure_layout(app: &AppHandle) -> Result<(), String> {
         };
         save_index(&paths, &index)?;
     }
+
+    // 启动自检：超限快照按最旧清理，失败不阻塞启动。
+    prune_recovery(&paths);
+    prune_versions_total(&paths);
 
     Ok(())
 }
@@ -501,6 +577,8 @@ pub fn write_doc(
     updated.updated_at = now_ms();
     let clone = updated.clone();
     save_index(paths, index)?;
+    // 显式保存成功后，恢复快照没有存在意义了。
+    drop_recovery(paths, doc_id);
     Ok(clone)
 }
 
@@ -554,6 +632,7 @@ pub fn delete_doc(
         // 只进回收站，绝不直接 unlink。
         trash::delete(&path).map_err(|e| format!("无法移入回收站：{e}"))?;
     }
+    drop_recovery(paths, doc_id);
     index.docs.retain(|d| d.id != doc_id);
     save_index(paths, index)
 }
@@ -716,6 +795,359 @@ pub fn drop_scratch(paths: &WorkspacePaths, tab_id: &str) -> Result<(), String> 
         let _ = fs::remove_file(&meta);
     }
     Ok(())
+}
+
+/* ---------- AI 会话 ---------- */
+
+fn chat_path(paths: &WorkspacePaths, doc_id: &str) -> PathBuf {
+    paths.chats.join(format!("{doc_id}.json"))
+}
+
+pub fn load_chat(paths: &WorkspacePaths, doc_id: &str) -> Result<Vec<ChatMessage>, String> {
+    let path = chat_path(paths, doc_id);
+    if !path.exists() {
+        return Ok(Vec::new());
+    }
+    let raw = fs::read_to_string(&path).map_err(|e| format!("无法读取会话：{e}"))?;
+    if raw.trim().is_empty() {
+        return Ok(Vec::new());
+    }
+    serde_json::from_str(&raw).map_err(|e| format!("会话文件已损坏：{e}"))
+}
+
+pub fn append_chat(
+    paths: &WorkspacePaths,
+    doc_id: &str,
+    message: ChatMessage,
+) -> Result<(), String> {
+    let mut messages = load_chat(paths, doc_id)?;
+    messages.push(message);
+    let bytes = serde_json::to_vec_pretty(&messages).map_err(|e| format!("会话序列化失败：{e}"))?;
+    write_atomic(&chat_path(paths, doc_id), &bytes).map_err(|e| format!("会话写入失败：{e}"))
+}
+
+pub fn clear_chat(paths: &WorkspacePaths, doc_id: &str) -> Result<(), String> {
+    let path = chat_path(paths, doc_id);
+    if path.exists() {
+        fs::remove_file(&path).map_err(|e| format!("清空会话失败：{e}"))?;
+    }
+    Ok(())
+}
+
+pub fn set_ai_readable(
+    paths: &WorkspacePaths,
+    index: &mut LibraryIndex,
+    doc_id: &str,
+    readable: bool,
+) -> Result<DocMeta, String> {
+    let doc = index
+        .docs
+        .iter_mut()
+        .find(|item| item.id == doc_id)
+        .ok_or("文档不存在")?;
+    doc.ai_readable = readable;
+    let clone = doc.clone();
+    save_index(paths, index)?;
+    Ok(clone)
+}
+
+/* ---------- 恢复快照（常驻文档未保存改动） ---------- */
+
+pub fn recovery_path(paths: &WorkspacePaths, doc_id: &str) -> PathBuf {
+    paths.recovery.join(format!("{doc_id}.snap"))
+}
+
+pub fn save_recovery(
+    paths: &WorkspacePaths,
+    doc_id: &str,
+    title: &str,
+    content: &str,
+    encoding_name: &str,
+    has_bom: bool,
+    line_ending: &str,
+) -> Result<(), String> {
+    let snap = RecoverySnap {
+        doc_id: doc_id.to_string(),
+        title: title.to_string(),
+        content: content.to_string(),
+        encoding: encoding_name.to_string(),
+        has_bom,
+        line_ending: line_ending.to_string(),
+        saved_at: now_ms(),
+    };
+    let bytes = serde_json::to_vec(&snap).map_err(|e| format!("恢复快照序列化失败：{e}"))?;
+    write_atomic(&recovery_path(paths, doc_id), &bytes)
+        .map_err(|e| format!("恢复快照写入失败：{e}"))
+}
+
+pub fn list_recovery(paths: &WorkspacePaths) -> Vec<RecoveryMeta> {
+    let mut items = Vec::new();
+    if let Ok(entries) = fs::read_dir(&paths.recovery) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("snap") {
+                continue;
+            }
+            let size = entry.metadata().map(|m| m.len()).unwrap_or(0);
+            if let Ok(raw) = fs::read_to_string(&path) {
+                if let Ok(snap) = serde_json::from_str::<RecoverySnap>(&raw) {
+                    items.push(RecoveryMeta {
+                        doc_id: snap.doc_id,
+                        title: snap.title,
+                        saved_at: snap.saved_at,
+                        size_bytes: size,
+                    });
+                }
+            }
+        }
+    }
+    items.sort_by(|a, b| b.saved_at.cmp(&a.saved_at));
+    items
+}
+
+pub fn read_recovery(paths: &WorkspacePaths, doc_id: &str) -> Result<RecoverySnap, String> {
+    let raw = fs::read_to_string(recovery_path(paths, doc_id))
+        .map_err(|e| format!("无法读取恢复快照：{e}"))?;
+    serde_json::from_str(&raw).map_err(|e| format!("恢复快照已损坏：{e}"))
+}
+
+pub fn drop_recovery(paths: &WorkspacePaths, doc_id: &str) {
+    let path = recovery_path(paths, doc_id);
+    if path.exists() {
+        let _ = fs::remove_file(path);
+    }
+}
+
+/// 应用启动时调用：恢复目录超 100MB 时按修改时间丢最旧。
+fn prune_recovery(paths: &WorkspacePaths) {
+    let mut files: Vec<(PathBuf, SystemTime, u64)> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&paths.recovery) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("snap") {
+                continue;
+            }
+            if let Ok(meta) = entry.metadata() {
+                files.push((
+                    path,
+                    meta.modified().unwrap_or(UNIX_EPOCH),
+                    meta.len(),
+                ));
+            }
+        }
+    }
+
+    let mut total: u64 = files.iter().map(|item| item.2).sum();
+    if total <= RECOVERY_LIMIT_BYTES {
+        return;
+    }
+    files.sort_by_key(|item| item.1);
+    for (path, _, size) in files {
+        if total <= RECOVERY_LIMIT_BYTES {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            total = total.saturating_sub(size);
+        }
+    }
+}
+
+/* ---------- 版本快照（AI 修改 / 还原前置） ---------- */
+
+fn version_dir(paths: &WorkspacePaths, doc_id: &str) -> PathBuf {
+    paths.versions.join(doc_id)
+}
+
+pub fn create_version(
+    paths: &WorkspacePaths,
+    index: &LibraryIndex,
+    doc_id: &str,
+    content: &str,
+    encoding_name: &str,
+    has_bom: bool,
+    line_ending: &str,
+    source: &str,
+) -> Result<VersionMeta, String> {
+    if !index.docs.iter().any(|doc| doc.id == doc_id) {
+        return Err("文档不存在".into());
+    }
+
+    let created_at = now_ms();
+    // 时间 + 补零序号，文件名排序即创建顺序。
+    let id = format!("{created_at}-{:06}", next_seq() % 1_000_000);
+    let snap = VersionSnap {
+        id: id.clone(),
+        doc_id: doc_id.to_string(),
+        source: source.to_string(),
+        created_at,
+        encoding: encoding_name.to_string(),
+        has_bom,
+        line_ending: line_ending.to_string(),
+        content: content.to_string(),
+    };
+    let bytes = serde_json::to_vec(&snap).map_err(|e| format!("版本快照序列化失败：{e}"))?;
+    write_atomic(&version_dir(paths, doc_id).join(format!("{id}.snap")), &bytes)
+        .map_err(|e| format!("版本快照写入失败：{e}"))?;
+
+    prune_versions(paths, doc_id);
+    prune_versions_total(paths);
+
+    Ok(VersionMeta {
+        id,
+        doc_id: doc_id.to_string(),
+        source: source.to_string(),
+        created_at,
+        size_bytes: bytes.len() as u64,
+    })
+}
+
+pub fn list_versions(paths: &WorkspacePaths, doc_id: &str) -> Vec<VersionMeta> {
+    let mut items = Vec::new();
+    if let Ok(entries) = fs::read_dir(version_dir(paths, doc_id)) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) != Some("snap") {
+                continue;
+            }
+            if let Ok(raw) = fs::read_to_string(&path) {
+                if let Ok(snap) = serde_json::from_str::<VersionSnap>(&raw) {
+                    if snap.doc_id != doc_id {
+                        continue;
+                    }
+                    items.push(VersionMeta {
+                        id: snap.id,
+                        doc_id: snap.doc_id,
+                        source: snap.source,
+                        created_at: snap.created_at,
+                        size_bytes: path.metadata().map(|m| m.len()).unwrap_or(0),
+                    });
+                }
+            }
+        }
+    }
+    items.sort_by(|a, b| b.created_at.cmp(&a.created_at).then(b.id.cmp(&a.id)));
+    items
+}
+
+pub fn read_version(
+    paths: &WorkspacePaths,
+    doc_id: &str,
+    version_id: &str,
+) -> Result<VersionSnap, String> {
+    if version_id.is_empty()
+        || !version_id
+            .chars()
+            .all(|c| c.is_ascii_alphanumeric() || c == '-')
+    {
+        return Err("版本标识不合法".into());
+    }
+    let raw = fs::read_to_string(version_dir(paths, doc_id).join(format!("{version_id}.snap")))
+        .map_err(|e| format!("无法读取版本快照：{e}"))?;
+    let snap: VersionSnap =
+        serde_json::from_str(&raw).map_err(|e| format!("版本快照已损坏：{e}"))?;
+    if snap.doc_id != doc_id {
+        return Err("版本不属于该文档".into());
+    }
+    Ok(snap)
+}
+
+pub fn restore_version(
+    paths: &WorkspacePaths,
+    index: &mut LibraryIndex,
+    doc_id: &str,
+    version_id: &str,
+    current_content: &str,
+    encoding_name: &str,
+    has_bom: bool,
+    line_ending: &str,
+) -> Result<VersionRestoreResult, String> {
+    let snap = read_version(paths, doc_id, version_id)?;
+
+    // 还原本身也是一次修改：先把当前内容留成 before-restore。
+    let snapshot = create_version(
+        paths,
+        index,
+        doc_id,
+        current_content,
+        encoding_name,
+        has_bom,
+        line_ending,
+        "before-restore",
+    )?;
+
+    write_doc(
+        paths,
+        index,
+        doc_id,
+        &snap.content,
+        &snap.encoding,
+        snap.has_bom,
+        &snap.line_ending,
+    )?;
+    let meta = find_doc(index, doc_id)?.clone();
+
+    Ok(VersionRestoreResult {
+        content: snap.content,
+        encoding: snap.encoding,
+        has_bom: snap.has_bom,
+        line_ending: snap.line_ending,
+        meta,
+        snapshot,
+    })
+}
+
+fn prune_versions(paths: &WorkspacePaths, doc_id: &str) {
+    let dir = version_dir(paths, doc_id);
+    let mut files: Vec<PathBuf> = Vec::new();
+    if let Ok(entries) = fs::read_dir(&dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.extension().and_then(|s| s.to_str()) == Some("snap") {
+                files.push(path);
+            }
+        }
+    }
+    if files.len() <= VERSIONS_PER_DOC {
+        return;
+    }
+    files.sort();
+    let excess = files.len() - VERSIONS_PER_DOC;
+    for path in files.into_iter().take(excess) {
+        let _ = fs::remove_file(path);
+    }
+}
+
+fn prune_versions_total(paths: &WorkspacePaths) {
+    let mut files: Vec<(PathBuf, SystemTime, u64)> = Vec::new();
+    collect_version_files(&paths.versions, &mut files);
+    let mut total: u64 = files.iter().map(|item| item.2).sum();
+    if total <= VERSIONS_LIMIT_BYTES {
+        return;
+    }
+    files.sort_by_key(|item| item.1);
+    for (path, _, size) in files {
+        if total <= VERSIONS_LIMIT_BYTES {
+            break;
+        }
+        if fs::remove_file(&path).is_ok() {
+            total = total.saturating_sub(size);
+        }
+    }
+}
+
+fn collect_version_files(dir: &Path, out: &mut Vec<(PathBuf, SystemTime, u64)>) {
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if path.is_dir() {
+                collect_version_files(&path, out);
+            } else if path.extension().and_then(|s| s.to_str()) == Some("snap") {
+                if let Ok(meta) = entry.metadata() {
+                    out.push((path, meta.modified().unwrap_or(UNIX_EPOCH), meta.len()));
+                }
+            }
+        }
+    }
 }
 
 /* ---------- 备份 / 恢复 / 迁移 ---------- */
@@ -1036,6 +1468,134 @@ mod tests {
 
         let restored = read_index_at(&paths.library).unwrap();
         assert_eq!(restored.docs.len(), 1);
+
+        let _ = fs::remove_dir_all(&paths.app_data);
+    }
+
+    #[test]
+    fn chat_roundtrip_and_clear() {
+        let paths = temp_paths();
+        append_chat(
+            &paths,
+            "doc-1",
+            ChatMessage {
+                role: "user".into(),
+                content: "你好".into(),
+                ts: 1,
+            },
+        )
+        .unwrap();
+        append_chat(
+            &paths,
+            "doc-1",
+            ChatMessage {
+                role: "assistant".into(),
+                content: "你好，有什么可以帮你？".into(),
+                ts: 2,
+            },
+        )
+        .unwrap();
+
+        let messages = load_chat(&paths, "doc-1").unwrap();
+        assert_eq!(messages.len(), 2);
+        assert_eq!(messages[1].role, "assistant");
+
+        clear_chat(&paths, "doc-1").unwrap();
+        assert!(load_chat(&paths, "doc-1").unwrap().is_empty());
+
+        let _ = fs::remove_dir_all(&paths.app_data);
+    }
+
+    #[test]
+    fn ai_readable_toggle_persists() {
+        let paths = temp_paths();
+        let mut index = empty_index();
+        let doc = create_doc(
+            &paths, &mut index, "禁读", UNCATEGORIZED_ID, "md", "x", "UTF-8", false, "LF",
+        )
+        .unwrap();
+
+        let updated = set_ai_readable(&paths, &mut index, &doc.id, false).unwrap();
+        assert!(!updated.ai_readable);
+
+        let raw = fs::read_to_string(&paths.index).unwrap();
+        let reloaded: LibraryIndex = serde_json::from_str(&raw).unwrap();
+        assert!(!reloaded.docs[0].ai_readable);
+
+        let _ = fs::remove_dir_all(&paths.app_data);
+    }
+
+    #[test]
+    fn recovery_snapshot_roundtrip() {
+        let paths = temp_paths();
+        save_recovery(&paths, "doc-1", "会议记录", "未保存的正文", "GBK", false, "CRLF").unwrap();
+
+        let listed = list_recovery(&paths);
+        assert_eq!(listed.len(), 1);
+        assert_eq!(listed[0].title, "会议记录");
+
+        let snap = read_recovery(&paths, "doc-1").unwrap();
+        assert_eq!(snap.content, "未保存的正文");
+        assert_eq!(snap.encoding, "GBK");
+        assert_eq!(snap.line_ending, "CRLF");
+
+        drop_recovery(&paths, "doc-1");
+        assert!(list_recovery(&paths).is_empty());
+
+        let _ = fs::remove_dir_all(&paths.app_data);
+    }
+
+    #[test]
+    fn versions_keep_latest_twenty_and_restore_keeps_before_snapshot() {
+        let paths = temp_paths();
+        let mut index = empty_index();
+        let doc = create_doc(
+            &paths, &mut index, "版本测试", UNCATEGORIZED_ID, "md", "v0", "UTF-8", false, "LF",
+        )
+        .unwrap();
+
+        let mut ids = Vec::new();
+        for n in 0..25 {
+            let meta = create_version(
+                &paths,
+                &index,
+                &doc.id,
+                &format!("v{n}"),
+                "UTF-8",
+                false,
+                "LF",
+                "manual",
+            )
+            .unwrap();
+            ids.push(meta.id);
+        }
+
+        let listed = list_versions(&paths, &doc.id);
+        assert_eq!(listed.len(), VERSIONS_PER_DOC);
+        assert_eq!(listed[0].id, ids[24]);
+        assert!(!listed.iter().any(|item| item.id == ids[0]));
+
+        let result = restore_version(
+            &paths,
+            &mut index,
+            &doc.id,
+            &listed[0].id,
+            "当前未保存正文",
+            "UTF-8",
+            false,
+            "LF",
+        )
+        .unwrap();
+
+        assert_eq!(result.content, "v24");
+        assert_eq!(result.snapshot.source, "before-restore");
+        let on_disk = read_doc(&paths, &index, &doc.id).unwrap();
+        assert_eq!(on_disk.content, "v24");
+        assert!(
+            list_versions(&paths, &doc.id)
+                .iter()
+                .any(|item| item.source == "before-restore")
+        );
 
         let _ = fs::remove_dir_all(&paths.app_data);
     }

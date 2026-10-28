@@ -87,6 +87,20 @@ export default function StatusBar() {
         </span>
       )}
 
+      {activeTab?.kind === "library" && (
+        <>
+          <button
+            type="button"
+            className={clsx(styles.statusItem, styles.statusClickable)}
+            title="版本快照（AI 修改与还原前自动留档）"
+            onClick={() => openDialog("versions")}
+          >
+            版本
+          </button>
+          <span className={styles.sep} />
+        </>
+      )}
+
       <button
         type="button"
         className={clsx(styles.statusItem, styles.statusClickable)}

@@ -8,7 +8,20 @@ import type { Category, DocMeta, LineEnding } from "../lib/types";
  */
 export type ThemeMode = "system" | "light" | "dark";
 export type TabKind = "temp" | "library";
-export type DialogName = "none" | "save" | "import" | "settings";
+export type DialogName =
+  | "none"
+  | "save"
+  | "import"
+  | "settings"
+  | "versions"
+  | "quickopen";
+export type CloseMode = "close" | "exit";
+export type SettingsSection = "general" | "ai" | "editor" | "library" | "shortcuts";
+
+export interface ClosePrompt {
+  tabId: string;
+  mode: CloseMode;
+}
 
 export interface TabMeta {
   id: string;
@@ -62,17 +75,28 @@ interface AppState {
   query: string;
 
   dialog: DialogName;
+  /** 关闭有脏内容的标签或退出应用时，等待用户选择。 */
+  closePrompt: ClosePrompt | null;
+  settingsSection: SettingsSection;
 
   sidebarWidth: number;
+  sidebarCollapsed: boolean;
   aiWidth: number;
   aiOpen: boolean;
 
   themeMode: ThemeMode;
   fontSize: number;
   lineHeight: number;
+  /** "theme" 或 EDITOR_BACKGROUNDS 的 id，或 custom:#rrggbb。 */
+  editorBackground: string;
 
   cursor: { line: number; col: number };
   docSize: number;
+  selectionChars: number;
+
+  globalShortcut: string;
+  closeToTray: boolean;
+  aiSettingsVersion: number;
 
   addTab: (init: TabInit, activate?: boolean) => string;
   addRestoredTab: (id: string, init: TabInit) => void;
@@ -88,16 +112,27 @@ interface AppState {
   toggleCollapsed: (categoryId: string) => void;
   setQuery: (query: string) => void;
   openDialog: (dialog: DialogName) => void;
+  setClosePrompt: (prompt: ClosePrompt | null) => void;
 
   setCursor: (line: number, col: number) => void;
   setDocSize: (size: number) => void;
+  setSelectionChars: (chars: number) => void;
+  setGlobalShortcut: (shortcut: string) => void;
+  setCloseToTray: (enabled: boolean) => void;
+  bumpAiSettings: () => void;
+  setSettingsSection: (section: SettingsSection) => void;
 
   setSidebarWidth: (width: number) => void;
+  toggleSidebar: () => void;
   setAiWidth: (width: number) => void;
   toggleAi: () => void;
 
   cycleTheme: () => void;
   cycleFontSize: () => void;
+  setThemeMode: (mode: ThemeMode) => void;
+  setFontSize: (size: number) => void;
+  setLineHeight: (lineHeight: number) => void;
+  setEditorBackground: (value: string) => void;
 }
 
 const firstTabId = newTabId();
@@ -128,17 +163,26 @@ export const useAppStore = create<AppState>((set, get) => ({
   query: "",
 
   dialog: "none",
+  closePrompt: null,
+  settingsSection: "general",
 
   sidebarWidth: clamp(readPref("sidebarWidth", 240), 190, 420),
+  sidebarCollapsed: readPref("sidebarCollapsed", false),
   aiWidth: clamp(readPref("aiWidth", 356), 300, 560),
   aiOpen: false,
 
   themeMode: readPref<ThemeMode>("themeMode", "system"),
   fontSize: clamp(readPref("fontSize", 13), 12, 22),
   lineHeight: readPref("lineHeight", 1.7),
+  editorBackground: readPref("editorBackground", "theme"),
 
   cursor: { line: 1, col: 1 },
   docSize: 0,
+  selectionChars: 0,
+
+  globalShortcut: readPref("globalShortcut", "Ctrl+Alt+N"),
+  closeToTray: readPref("closeToTray", true),
+  aiSettingsVersion: 0,
 
   addTab: (init, activate = true) => {
     const id = newTabId();
@@ -215,11 +259,18 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({ collapsed: { ...s.collapsed, [categoryId]: !s.collapsed[categoryId] } })),
   setQuery: (query) => set({ query }),
   openDialog: (dialog) => set({ dialog }),
+  setClosePrompt: (closePrompt) => set({ closePrompt }),
 
   setCursor: (line, col) => set({ cursor: { line, col } }),
   setDocSize: (docSize) => set({ docSize }),
+  setSelectionChars: (selectionChars) => set({ selectionChars }),
+  setGlobalShortcut: (globalShortcut) => set({ globalShortcut }),
+  setCloseToTray: (closeToTray) => set({ closeToTray }),
+  bumpAiSettings: () => set((s) => ({ aiSettingsVersion: s.aiSettingsVersion + 1 })),
+  setSettingsSection: (settingsSection) => set({ settingsSection }),
 
   setSidebarWidth: (width) => set({ sidebarWidth: clamp(width, 190, 420) }),
+  toggleSidebar: () => set((s) => ({ sidebarCollapsed: !s.sidebarCollapsed })),
   setAiWidth: (width) => set({ aiWidth: clamp(width, 300, 560) }),
 
   toggleAi: () => set((s) => ({ aiOpen: !s.aiOpen })),
@@ -236,6 +287,12 @@ export const useAppStore = create<AppState>((set, get) => ({
     const next = index === -1 ? FONT_SIZES[0] : FONT_SIZES[(index + 1) % FONT_SIZES.length];
     set({ fontSize: next });
   },
+
+  setThemeMode: (themeMode) => set({ themeMode }),
+  setFontSize: (size) => set({ fontSize: clamp(size, 12, 22) }),
+  setLineHeight: (lineHeight) =>
+    set({ lineHeight: Math.max(1.2, Math.min(2.2, Math.round(lineHeight * 100) / 100)) }),
+  setEditorBackground: (editorBackground) => set({ editorBackground }),
 }));
 
 function clamp(value: number, min: number, max: number): number {

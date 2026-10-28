@@ -18,14 +18,23 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["tray-icon"] }
 tauri-plugin-opener = "2"
 tauri-plugin-dialog = "2"
+tauri-plugin-single-instance = "2"
+tauri-plugin-global-shortcut = "2"
+tauri-plugin-window-state = "2"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 encoding_rs = "0.8"
 chardetng = "0.1"
 trash = "5"
+keyring = { version = "3", features = ["windows-native"] }
+reqwest = { version = "0.12", features = ["stream", "json"] }
+
+[dev-dependencies]
+# 只用 rt，不引 tokio-macros（镜像可能落后）。
+tokio = { version = "1", features = ["rt-multi-thread"] }
 
 
 # Read the optimization guideline for more details: https://tauri.app/concept/size/#cargo-configuration

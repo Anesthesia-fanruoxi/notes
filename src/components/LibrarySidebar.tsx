@@ -19,6 +19,7 @@ export default function LibrarySidebar() {
   const sidebarWidth = useAppStore((s) => s.sidebarWidth);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
   const addTab = useAppStore((s) => s.addTab);
+  const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const toggleCollapsed = useAppStore((s) => s.toggleCollapsed);
   const setQuery = useAppStore((s) => s.setQuery);
 
@@ -89,6 +90,11 @@ export default function LibrarySidebar() {
         onClick={() => void openLibraryDoc(doc.id)}
       >
         <span className={styles.docName}>{doc.title}</span>
+        {!doc.aiReadable && (
+          <span className={styles.docLock} title="已禁止 AI 读取">
+            禁读
+          </span>
+        )}
         {tab?.dirty && (
           <span className={styles.docFlag}>
             <span className={styles.mdot} title="已修改" />
@@ -150,6 +156,15 @@ export default function LibrarySidebar() {
         <span className={styles.libHdSpacer} />
         <button type="button" className={styles.iconBtn} title="新建分类" onClick={() => void createCategory()}>
           ＋
+        </button>
+        <button
+          type="button"
+          className={styles.iconBtn}
+          title="收起侧栏"
+          aria-label="收起侧栏"
+          onClick={toggleSidebar}
+        >
+          «
         </button>
       </div>
 

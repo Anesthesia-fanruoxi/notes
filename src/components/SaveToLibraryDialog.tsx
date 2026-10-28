@@ -1,6 +1,7 @@
-import { useMemo, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { activeTab, saveTempToLibrary, stemName } from "../lib/documents";
+import { resolveSaveToLibrary } from "../lib/tabActions";
 import type { Category } from "../lib/types";
 import { useAppStore } from "../store/useAppStore";
 import styles from "../styles/app.module.css";
@@ -31,6 +32,9 @@ export default function SaveToLibraryDialog() {
   const [error, setError] = useState("");
   const [saving, setSaving] = useState(false);
 
+  // 被关闭 / 取消 / Esc 收起时，通知等待中的关闭/退出流程：没有保存。
+  useEffect(() => () => resolveSaveToLibrary(false), []);
+
   if (!tab) return null;
 
   const submit = async () => {
@@ -41,6 +45,7 @@ export default function SaveToLibraryDialog() {
     setSaving(true);
     try {
       await saveTempToLibrary(tab.id, title.trim(), categoryId);
+      resolveSaveToLibrary(true);
       closeDialog("none");
     } catch (err) {
       setError(err instanceof Error ? err.message : "保存失败");
