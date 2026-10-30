@@ -240,7 +240,7 @@ export default function App() {
           break;
         case "v":
           if (!event.shiftKey) break;
-          // 只有 Markdown 有实时渲染态，其它文件不响应（保留纯文本粘贴）。
+          // 只有 Markdown 有预览态，其它文件不响应（保留纯文本粘贴）。
           if (!/\.(md|markdown)$/i.test(activeTab()?.filename ?? "")) break;
           event.preventDefault();
           toggleLivePreview();

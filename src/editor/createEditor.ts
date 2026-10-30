@@ -1,4 +1,4 @@
-import { Compartment, EditorState, Prec, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension } from "@codemirror/state";
 import {
   EditorView,
   drawSelection,
@@ -16,17 +16,15 @@ import { bracketMatching, indentOnInput, type LanguageSupport } from "@codemirro
 import { openFind, searchExtension } from "./search";
 import { editorTheme } from "./theme";
 import {
-  closeLivePreviewPopovers,
   placeCursorOutsideFence,
   livePreviewExtension,
   livePreviewGuard,
-  selectCodeBlockContent,
 } from "./livePreview";
 import type { EditorTier } from "./tiers";
 
 /** 语言扩展槽：切换语言时只重配这一格，不重建整个 state。 */
 export const languageCompartment = new Compartment();
-/** 实时渲染开关：源码 ↔ Typora 式隐藏标记。 */
+/** 预览开关：源码 ↔ 只读渲染。 */
 export const livePreviewCompartment = new Compartment();
 
 function commonExtensions(): Extension[] {
@@ -44,15 +42,14 @@ function commonExtensions(): Extension[] {
   ];
 }
 
-/** 实时渲染态的编辑器标记：渲染时隐藏行号槽。 */
+/** 预览态的编辑器标记：渲染时隐藏行号槽。 */
 const liveAttributes = EditorView.editorAttributes.of({ class: "cm-md-live" });
 
-/** 实时渲染格的内容：装饰 + 围栏守卫 + 块内全选 + 标记类，开关时整格重配。 */
+/** 预览格的内容：只读 + 渲染装饰 + 围栏守卫 + 标记类，开关时整格重配。 */
 function livePreviewConfig(enabled: boolean): Extension[] {
   return enabled
     ? [
-        // 块内 Ctrl+A 只选代码正文；整篇全选请切源码模式。
-        Prec.high(keymap.of([{ key: "Mod-a", run: selectCodeBlockContent }])),
+        EditorState.readOnly.of(true),
         livePreviewExtension,
         livePreviewGuard,
         liveAttributes,
@@ -122,12 +119,15 @@ export function applyLanguage(view: EditorView, support: LanguageSupport | null)
   view.dispatch({ effects: languageCompartment.reconfigure(support ?? []) });
 }
 
-/** 源码 ↔ 实时渲染，不重建 state，保留撤销栈。 */
+/** 源码 ↔ 预览，不重建 state，保留撤销栈。 */
 export function setLivePreview(view: EditorView, enabled: boolean): void {
   const wasLive = view.state.field(livePreviewExtension, false) !== undefined;
-  closeLivePreviewPopovers();
+  // 重配装饰会改变行高和块布局，但没动文档/选区，drawSelection 的选区层
+  // 不会因此重绘。把同一份 selection 带进重配事务，强制触发 selectionSet，
+  // 让选区层按新布局重画，否则切回预览态时高亮会停在源码态的位置。
   view.dispatch({
     effects: livePreviewCompartment.reconfigure(livePreviewConfig(enabled)),
+    selection: view.state.selection,
   });
   if (enabled && !wasLive) placeCursorOutsideFence(view);
 }

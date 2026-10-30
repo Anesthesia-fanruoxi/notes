@@ -45,10 +45,16 @@ const baseTheme = EditorView.theme({
     paddingLeft: "20px",
   },
   // 代码块行有自己的底色，默认选区层（z-index:-1）会被底色盖住。
-  // 渲染态把选区层提到文字之上，选区底色改用半透明变量，保证代码仍可读。
+  // 渲染态把选区层提到文字之上，并裁到正文内容区，避免选区盖住
+  // .cm-content 的左右内边距（表现为高亮越出代码块/末端留下小色块）。
+  // 注意：CM 的选区层默认是 0×0 的绝对定位容器，必须先撑满，
+  // clip-path 才有可裁剪的区域，否则选区会整个消失。
   "&.cm-md-live .cm-selectionLayer": {
     zIndex: "1 !important",
     pointerEvents: "none",
+    width: "100%",
+    height: "100%",
+    clipPath: "inset(0 28px 0 20px)",
   },
   "&.cm-md-live.cm-focused > .cm-scroller > .cm-selectionLayer .cm-selectionBackground": {
     backgroundColor: "var(--selection-bg) !important",
@@ -144,7 +150,7 @@ const baseTheme = EditorView.theme({
     color: "var(--fg)",
   },
 
-  /* 实时渲染（Typora 式）装饰 */
+  /* Markdown 预览装饰 */
   ".cm-md-h1": { fontSize: "1.7em", fontWeight: "600", lineHeight: "1.5" },
   ".cm-md-h2": { fontSize: "1.42em", fontWeight: "600", lineHeight: "1.55" },
   ".cm-md-h3": { fontSize: "1.2em", fontWeight: "600" },
@@ -197,84 +203,10 @@ const baseTheme = EditorView.theme({
     userSelect: "none",
   },
   ".cm-md-lang": {
-    padding: "1px 4px",
-    marginLeft: "-4px",
-    borderRadius: "3px",
     fontFamily: "var(--mono)",
     fontSize: "11px",
     color: "var(--fg-2)",
     letterSpacing: "0.02em",
-    cursor: "pointer",
-    transition: "color 0.12s ease, background-color 0.12s ease",
-  },
-  ".cm-md-lang:hover": {
-    color: "var(--fg)",
-    backgroundColor: "var(--hover)",
-  },
-  ".cm-md-lang-edit": {
-    position: "relative",
-    display: "inline-flex",
-    alignItems: "center",
-  },
-  ".cm-md-lang-input": {
-    width: "108px",
-    height: "20px",
-    padding: "0 6px",
-    border: "1px solid var(--accent)",
-    borderRadius: "4px",
-    background: "var(--win)",
-    color: "var(--fg)",
-    fontFamily: "var(--mono)",
-    fontSize: "11px",
-    lineHeight: "1",
-    outline: "none",
-    userSelect: "text",
-  },
-  ".cm-md-lang-menu": {
-    position: "absolute",
-    top: "calc(100% + 4px)",
-    left: "0",
-    zIndex: "60",
-    width: "190px",
-    maxHeight: "190px",
-    overflowY: "auto",
-    padding: "4px",
-    border: "1px solid var(--border-2)",
-    borderRadius: "6px",
-    backgroundColor: "var(--win)",
-    boxShadow: "0 10px 28px rgba(15, 23, 42, 0.18)",
-  },
-  ".cm-md-lang-menu.is-up": {
-    top: "auto",
-    bottom: "calc(100% + 4px)",
-  },
-  ".cm-md-lang-option": {
-    display: "flex",
-    alignItems: "baseline",
-    gap: "8px",
-    padding: "4px 7px",
-    borderRadius: "4px",
-    cursor: "pointer",
-  },
-  ".cm-md-lang-option:hover": {
-    backgroundColor: "var(--hover)",
-  },
-  ".cm-md-lang-option.is-active": {
-    backgroundColor: "var(--accent-soft)",
-  },
-  ".cm-md-lang-code": {
-    fontFamily: "var(--mono)",
-    fontSize: "11.5px",
-    color: "var(--fg)",
-  },
-  ".cm-md-lang-name": {
-    fontSize: "10.5px",
-    color: "var(--fg-3)",
-  },
-  ".cm-md-lang-empty": {
-    padding: "5px 7px",
-    color: "var(--fg-3)",
-    fontSize: "11px",
   },
   ".cm-md-copy": {
     display: "inline-flex",
@@ -306,25 +238,9 @@ const baseTheme = EditorView.theme({
     fontSize: "0.92em",
   },
   ".cm-md-table th, .cm-md-table td": {
-    position: "relative",
     padding: "5px 9px",
     border: "1px solid var(--border)",
     textAlign: "left",
-    cursor: "text",
-  },
-  ".cm-md-table-edit": {
-    position: "absolute",
-    inset: "0",
-    width: "100%",
-    height: "100%",
-    padding: "5px 9px",
-    border: "1px solid var(--accent)",
-    borderRadius: "2px",
-    background: "var(--win)",
-    color: "var(--fg)",
-    font: "inherit",
-    outline: "none",
-    zIndex: "3",
   },
   ".cm-md-table th": {
     backgroundColor: "var(--side)",

@@ -132,10 +132,10 @@ export default function StatusBar() {
           livePreview && isMarkdown && styles.statusOn,
         )}
         disabled={!isMarkdown}
-        title={isMarkdown ? "Ctrl+Shift+V 切换实时渲染 / 源码" : "仅 Markdown 文档支持实时渲染"}
+        title={isMarkdown ? "Ctrl+Shift+V 切换预览 / 源码" : "仅 Markdown 文档支持预览"}
         onClick={toggleLivePreview}
       >
-        {livePreview ? "实时渲染" : "源码"}
+        {livePreview && isMarkdown ? "预览" : "源码"}
       </button>
       <span className={styles.sep} />
 

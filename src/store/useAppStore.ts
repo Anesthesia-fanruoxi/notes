@@ -108,7 +108,7 @@ interface AppState {
 
   cursor: { line: number; col: number };
   docSize: number;
-  /** Markdown 实时渲染（Typora 式）；关闭即源码模式。 */
+  /** Markdown 预览（只读渲染）；关闭即源码编辑模式。 */
   livePreview: boolean;
   /** 正文变更计数，预览靠它触发重渲染。 */
   docVersion: number;

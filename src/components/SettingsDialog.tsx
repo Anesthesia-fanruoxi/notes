@@ -58,7 +58,7 @@ const SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Ctrl+P", label: "快速打开" },
   { keys: "Ctrl+,", label: "设置" },
   { keys: "Ctrl+/", label: "注释 / 取消注释" },
-  { keys: "Ctrl+Shift+V", label: "Markdown 实时渲染 / 源码切换" },
+  { keys: "Ctrl+Shift+V", label: "Markdown 预览 / 源码切换" },
   { keys: "Ctrl+Shift+/", label: "开关 AI 侧栏" },
   { keys: "Esc", label: "关闭浮层 / 面板" },
 ];

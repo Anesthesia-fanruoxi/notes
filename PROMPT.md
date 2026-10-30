@@ -77,7 +77,7 @@
 - 编码探测与保留（UTF-8 / UTF-8 BOM / GBK / GB18030 / UTF-16LE），换行符 CRLF/LF 保留
 - 大文件自动降级
 - 查找替换（当前文件，支持正则）
-- Markdown 实时渲染：编辑区内隐藏标记、光标行保持源码，`Ctrl+Shift+V` 切换源码态
+- Markdown 预览：编辑区内只读渲染（隐藏 Markdown 标记），`Ctrl+Shift+V` 切换预览/源码
 - 浅色/深色主题，跟随系统
 
 **文档库**
@@ -172,7 +172,7 @@ Rust 侧 `read_text_file` 的职责：
 | `Ctrl+P` | 快速打开（在文档库 + 临时区按标题模糊搜索） |
 | `Ctrl+,` | 设置 |
 | `Ctrl+/` | 注释 / 取消注释 |
-| `Ctrl+Shift+V` | Markdown 实时渲染 / 源码切换（Typora 式，仅 md 生效） |
+| `Ctrl+Shift+V` | Markdown 预览 / 源码切换（只读预览，仅 md 生效） |
 | `Ctrl+Shift+/` | 开关 AI 侧栏 |
 | `Esc` | 关闭当前浮层/面板 |
 
@@ -471,7 +471,7 @@ src-tauri/
 17. AI 替换选中后 `Ctrl+Z` 一次回到原文；版本列表有 `before-ai` 快照且能还原。
 18. 断网状态下点 AI，2s 内出现明确错误提示，界面不卡死。
 19. 资源管理器右键 `.md`「用本应用打开」→ 启动并作为临时文档；已运行时复用窗口。
-20. `Ctrl+Alt+N` 任意应用前台时唤起窗口；`Ctrl+Shift+V` 在 Markdown 实时渲染/源码间切换；`Ctrl+Shift+/` 开关 AI 侧栏。
+20. `Ctrl+Alt+N` 任意应用前台时唤起窗口；`Ctrl+Shift+V` 在 Markdown 预览/源码间切换；`Ctrl+Shift+/` 开关 AI 侧栏。
 21. `npm run tauri build` 产出安装包 < 15MB。
 
 ---

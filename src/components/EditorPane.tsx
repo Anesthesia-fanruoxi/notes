@@ -5,7 +5,6 @@ import type { EditorView } from "@codemirror/view";
 import { markViewTab, setActiveEditorView } from "../editor/activeView";
 import { resolveEditorBackground } from "../editor/background";
 import { applyLanguage, createEditorState, createEditorView, setLivePreview } from "../editor/createEditor";
-import { closeLivePreviewPopovers } from "../editor/livePreview";
 import { handleEditorUpdate } from "../editor/handleUpdate";
 import {
   findLanguageByName,
@@ -55,7 +54,6 @@ export default function EditorPane() {
     setActiveEditorView(view);
 
     return () => {
-      closeLivePreviewPopovers();
       const previous = prevTabIdRef.current;
       if (previous) putTabState(previous, view.state);
       markViewTab(null);
@@ -84,7 +82,6 @@ export default function EditorPane() {
       getTabState(activeTabId) ??
       createEditorState("", handleEditorUpdate, tier, shouldLive);
     putTabState(activeTabId, state);
-    closeLivePreviewPopovers();
     view.setState(state);
     view.focus();
     markViewTab(activeTabId);
@@ -141,7 +138,7 @@ export default function EditorPane() {
     };
   }, [activeTabId, filename, override, tier]);
 
-  // 源码 ↔ 实时渲染：只重配一个 compartment，保留撤销栈。
+  // 源码 ↔ 预览：只重配一个 compartment，保留撤销栈。
   useEffect(() => {
     const view = viewRef.current;
     if (!view || !activeTabId) return;
