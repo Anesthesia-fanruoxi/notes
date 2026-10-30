@@ -79,7 +79,7 @@ pub fn move_doc(app: AppHandle, doc_id: String, category_id: String) -> Result<(
 }
 
 #[tauri::command]
-pub fn delete_doc(app: AppHandle, doc_id: String) -> Result<(), String> {
+pub fn delete_doc(app: AppHandle, doc_id: String) -> Result<library::DeleteOutcome, String> {
     let (paths, mut index) = library::load_index(&app)?;
     library::delete_doc(&paths, &mut index, &doc_id)
 }
@@ -166,6 +166,7 @@ pub fn export_doc(app: AppHandle, doc_id: String, target_dir: String) -> Result<
 }
 
 #[tauri::command]
+#[allow(clippy::too_many_arguments)]
 pub fn save_scratch(
     app: AppHandle,
     tab_id: String,
@@ -174,6 +175,8 @@ pub fn save_scratch(
     encoding: String,
     has_bom: bool,
     line_ending: String,
+    source: Option<String>,
+    path: Option<String>,
 ) -> Result<(), String> {
     let paths = library::WorkspacePaths::resolve(&app)?;
     library::save_scratch(
@@ -184,6 +187,8 @@ pub fn save_scratch(
         &encoding,
         has_bom,
         &line_ending,
+        source.as_deref().unwrap_or("new"),
+        path.as_deref(),
     )
 }
 

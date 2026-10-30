@@ -1,7 +1,7 @@
 import { create } from "zustand";
 
 import { readPref } from "../lib/prefs";
-import type { Category, DocMeta, LineEnding } from "../lib/types";
+import type { Category, DocMeta, LineEnding, ScratchDoc } from "../lib/types";
 
 /**
  * 只放元数据。文档正文永远不进这里（PROMPT §3.1）。
@@ -16,7 +16,7 @@ export type DialogName =
   | "versions"
   | "quickopen";
 export type CloseMode = "close" | "exit";
-export type SettingsSection = "general" | "ai" | "editor" | "library" | "shortcuts";
+export type SettingsSection = "general" | "ai" | "usage" | "editor" | "library" | "shortcuts";
 
 export interface ClosePrompt {
   tabId: string;
@@ -38,6 +38,16 @@ export interface TabMeta {
   sizeBytes: number;
   /** 命中读取上限，只能按纯文本档打开。 */
   truncated: boolean;
+  /** 从磁盘打开的临时文件：原始路径。 */
+  path?: string;
+  /** 临时文件来源：new = + 新建，file = 从磁盘打开。 */
+  scratchSource?: "new" | "file";
+  /** 打开/保存时记下的文件 mtime（毫秒），用于外部修改检测。 */
+  diskMtime?: number;
+  /** 磁盘上的文件已被外部修改，编辑器里是副本。 */
+  external?: boolean;
+  /** 磁盘上的文件已被删除，编辑器里是最后一份副本。 */
+  missing?: boolean;
   /** "__plain" 或语言名；空表示自动识别。 */
   languageOverride?: string;
   languageLabel?: string;
@@ -56,6 +66,10 @@ export interface TabInit {
   sizeBytes?: number;
   truncated?: boolean;
   dirty?: boolean;
+  path?: string;
+  scratchSource?: "new" | "file";
+  diskMtime?: number;
+  missing?: boolean;
 }
 
 let tabSeq = 0;
@@ -71,6 +85,8 @@ interface AppState {
 
   categories: Category[];
   docs: DocMeta[];
+  /** 临时文件记录（落盘的 scratch 元数据），侧栏据此展示。 */
+  scratchDocs: ScratchDoc[];
   collapsed: Record<string, boolean>;
   query: string;
 
@@ -92,6 +108,10 @@ interface AppState {
 
   cursor: { line: number; col: number };
   docSize: number;
+  /** Markdown 实时渲染（Typora 式）；关闭即源码模式。 */
+  livePreview: boolean;
+  /** 正文变更计数，预览靠它触发重渲染。 */
+  docVersion: number;
   selectionChars: number;
 
   globalShortcut: string;
@@ -109,6 +129,7 @@ interface AppState {
   setLanguageLabel: (id: string, label: string) => void;
 
   setLibrary: (categories: Category[], docs: DocMeta[]) => void;
+  setScratchDocs: (docs: ScratchDoc[]) => void;
   toggleCollapsed: (categoryId: string) => void;
   setQuery: (query: string) => void;
   openDialog: (dialog: DialogName) => void;
@@ -117,6 +138,8 @@ interface AppState {
   setCursor: (line: number, col: number) => void;
   setDocSize: (size: number) => void;
   setSelectionChars: (chars: number) => void;
+  toggleLivePreview: () => void;
+  bumpDocVersion: () => void;
   setGlobalShortcut: (shortcut: string) => void;
   setCloseToTray: (enabled: boolean) => void;
   bumpAiSettings: () => void;
@@ -150,6 +173,10 @@ function makeTab(init: TabInit, id: string): TabMeta {
     lineEnding: init.lineEnding ?? "LF",
     sizeBytes: init.sizeBytes ?? 0,
     truncated: init.truncated ?? false,
+    path: init.path,
+    scratchSource: init.scratchSource,
+    diskMtime: init.diskMtime,
+    missing: init.missing,
   };
 }
 
@@ -159,6 +186,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   categories: [],
   docs: [],
+  scratchDocs: [],
   collapsed: {},
   query: "",
 
@@ -178,6 +206,8 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   cursor: { line: 1, col: 1 },
   docSize: 0,
+  livePreview: readPref("livePreview", true),
+  docVersion: 0,
   selectionChars: 0,
 
   globalShortcut: readPref("globalShortcut", "Ctrl+Alt+N"),
@@ -255,6 +285,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setLibrary: (categories, docs) => set({ categories, docs }),
+  setScratchDocs: (scratchDocs) => set({ scratchDocs }),
   toggleCollapsed: (categoryId) =>
     set((s) => ({ collapsed: { ...s.collapsed, [categoryId]: !s.collapsed[categoryId] } })),
   setQuery: (query) => set({ query }),
@@ -264,6 +295,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   setCursor: (line, col) => set({ cursor: { line, col } }),
   setDocSize: (docSize) => set({ docSize }),
   setSelectionChars: (selectionChars) => set({ selectionChars }),
+  toggleLivePreview: () => set((s) => ({ livePreview: !s.livePreview })),
+  bumpDocVersion: () => set((s) => ({ docVersion: s.docVersion + 1 })),
   setGlobalShortcut: (globalShortcut) => set({ globalShortcut }),
   setCloseToTray: (closeToTray) => set({ closeToTray }),
   bumpAiSettings: () => set((s) => ({ aiSettingsVersion: s.aiSettingsVersion + 1 })),

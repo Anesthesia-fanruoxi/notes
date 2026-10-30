@@ -27,5 +27,6 @@ export function handleEditorUpdate(update: ViewUpdate): void {
       noteDirty(store.activeTabId);
     }
     store.setDocSize(state.doc.length);
+    store.bumpDocVersion();
   }
 }

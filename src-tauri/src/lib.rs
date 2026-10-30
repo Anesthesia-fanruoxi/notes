@@ -2,12 +2,56 @@ mod ai;
 mod commands;
 mod encoding;
 mod library;
+mod usage;
 
 use std::path::Path;
+use std::time::Duration;
 
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
-use tauri::{AppHandle, Emitter, Manager};
+use tauri::{AppHandle, Emitter, Manager, WindowEvent};
+use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+
+/// 记住窗口尺寸/位置/最大化，但不记 VISIBLE（关闭到托盘时会隐藏）。
+const STATE_FLAGS: StateFlags = StateFlags::SIZE
+    .union(StateFlags::POSITION)
+    .union(StateFlags::MAXIMIZED)
+    .union(StateFlags::DECORATIONS)
+    .union(StateFlags::FULLSCREEN);
+
+/// 窗口尺寸/位置随改随存（防抖 500ms），这样即使进程被强杀也能恢复上次大小。
+fn setup_window_state_persist(app: AppHandle) {
+    let Some(window) = app.get_webview_window("main") else {
+        return;
+    };
+
+    let (tx, rx) = std::sync::mpsc::channel::<()>();
+    std::thread::spawn(move || {
+        while rx.recv().is_ok() {
+            // 拖动窗口会连着来一串事件：等安静 500ms 再落盘。
+            loop {
+                std::thread::sleep(Duration::from_millis(500));
+                let mut more = false;
+                while rx.try_recv().is_ok() {
+                    more = true;
+                }
+                if !more {
+                    break;
+                }
+            }
+            let _ = app.save_window_state(STATE_FLAGS);
+        }
+    });
+
+    window.on_window_event(move |event| {
+        if matches!(
+            event,
+            WindowEvent::Resized(_) | WindowEvent::Moved(_) | WindowEvent::CloseRequested { .. }
+        ) {
+            let _ = tx.send(());
+        }
+    });
+}
 
 fn focus_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
@@ -96,13 +140,7 @@ pub fn run() {
         // 不记忆 VISIBLE：关闭到托盘时窗口是隐藏的，记下来会导致下次启动看不见。
         .plugin(
             tauri_plugin_window_state::Builder::default()
-                .with_state_flags(
-                    tauri_plugin_window_state::StateFlags::SIZE
-                        | tauri_plugin_window_state::StateFlags::POSITION
-                        | tauri_plugin_window_state::StateFlags::MAXIMIZED
-                        | tauri_plugin_window_state::StateFlags::DECORATIONS
-                        | tauri_plugin_window_state::StateFlags::FULLSCREEN,
-                )
+                .with_state_flags(STATE_FLAGS)
                 .build(),
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -111,13 +149,16 @@ pub fn run() {
         .setup(|app| {
             // 首启时把库目录骨架建好，后续命令直接按约定路径读写。
             library::ensure_layout(app.handle()).map_err(std::io::Error::other)?;
+            usage::prune(app.handle());
             setup_tray(app)?;
+            setup_window_state_persist(app.handle().clone());
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
             commands::ping,
             commands::fs::read_text_file,
             commands::fs::write_text_file,
+            commands::fs::file_mtime,
             commands::fs::take_cli_args,
             commands::library::list_library,
             commands::library::create_doc,
@@ -157,6 +198,9 @@ pub fn run() {
             ai::ai_chat,
             ai::ai_abort,
             ai::ai_test_connection,
+            ai::ai_list_models,
+            usage::ai_usage_scan,
+            usage::ai_usage_records,
             quit_app,
         ])
         .run(tauri::generate_context!())

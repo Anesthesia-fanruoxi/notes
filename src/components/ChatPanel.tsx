@@ -4,6 +4,8 @@ import { listen, type UnlistenFn } from "@tauri-apps/api/event";
 import type { EditorView } from "@codemirror/view";
 
 import { getActiveEditorView, getActiveViewTabId } from "../editor/activeView";
+import { flushScratchNow } from "../editor/autosave";
+import { flushRecoveryNow } from "../editor/recovery";
 import { readTabContent } from "../editor/content";
 import {
   AI_TEMPLATES,
@@ -292,6 +294,7 @@ export default function ChatPanel() {
       await ipc.aiChat({
         requestId: request.id,
         docId: tabAtStart.docId ?? null,
+        docTitle: tabAtStart.title,
         config: aiConfigOf(current),
         messages: payload,
       });
@@ -451,6 +454,10 @@ export default function ChatPanel() {
       changes: { from, to, insert: contentToApply },
       selection: { anchor: from + contentToApply.length },
     });
+
+    // 快照立即落盘：AI 的修改本身也成为新的工作副本。
+    if (tab.kind === "library") void flushRecoveryNow(tab.id);
+    else void flushScratchNow(tab.id);
 
     if (snapshotAt) {
       setApplied({ at: snapshotAt, hasSnapshot: true });
@@ -703,7 +710,7 @@ export default function ChatPanel() {
         <div className={styles.aiHint}>
           <span>Enter 发送 · Shift+Enter 换行</span>
           <span style={{ marginLeft: "auto" }}>
-            {tab?.kind === "temp" ? "临时会话 · 关闭即清" : "仅本文档 · Ctrl+/ 关闭"}
+            {tab?.kind === "temp" ? "临时会话 · 关闭即清" : "仅本文档 · Ctrl+Shift+/ 关闭"}
           </span>
         </div>
       </div>

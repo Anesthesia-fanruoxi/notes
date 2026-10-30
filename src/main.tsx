@@ -35,20 +35,36 @@ if (import.meta.env.DEV) {
     openSample(
       "sample.md",
       [
-        "# 语法高亮自测",
+        "# 编码与换行",
         "",
-        "普通段落，包含 `inline code` 与 **加粗**。",
+        "> 用户没主动改，写回就必须和读入完全一致。",
+        "",
+        "## 探测顺序",
+        "",
+        "1. 有 BOM 按 BOM 定编码",
+        "2. 无 BOM 用 `chardetng` 猜，再校验 U+FFFD",
+        "3. 失败回退 GB18030 → UTF-8",
         "",
         "```ts",
-        "const value: number = 42;",
-        "// 嵌套高亮应该生效",
-        "function greet(name: string) {",
-        '  return `hello ${name}`;',
-        "}",
+        "const doc = await read_text_file(path)",
+        "// 原样带回去",
+        "await write_text_file(path, doc.content, {",
+        "  encoding: doc.encoding,",
+        "  lineEnding: doc.lineEnding,",
+        "})",
         "```",
         "",
-        "- 列表项一",
-        "- 列表项二",
+        "- [x] 编码探测",
+        "- [ ] 换行符保留",
+        "",
+        "| 编码 | 场景 |",
+        "| --- | --- |",
+        "| UTF-8 | 默认 |",
+        "| GBK | 旧文件 |",
+        "",
+        "![示意图](data:image/svg+xml,%3Csvg%20xmlns='http://www.w3.org/2000/svg'%20width='180'%20height='72'%3E%3Crect%20width='180'%20height='72'%20rx='8'%20fill='%23e3ecff'/%3E%3Ctext%20x='20'%20y='42'%20font-size='14'%20fill='%232f6ae0'%3Eimage%20preview%3C/text%3E%3C/svg%3E)",
+        "",
+        "**结论**：编码是文件的属性，不是编辑器的偏好。",
       ].join("\n"),
     );
   } else if (sample === "ts") {
@@ -68,10 +84,17 @@ if (import.meta.env.DEV) {
     );
   }
 
-  // 验收辅助：?theme=dark / ?panel=find
+  // 验收辅助：?theme=dark / ?panel=find / ?preview=1
   const theme = params.get("theme");
   if (theme === "dark" || theme === "light") {
     useAppStore.setState({ themeMode: theme });
+  }
+
+  if (params.get("preview") === "1") {
+    useAppStore.setState({ livePreview: true });
+  }
+  if (params.get("source") === "1") {
+    useAppStore.setState({ livePreview: false });
   }
 
   if (params.get("panel") === "find") {

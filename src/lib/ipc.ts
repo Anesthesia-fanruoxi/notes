@@ -3,9 +3,12 @@ import { invoke } from "@tauri-apps/api/core";
 import type {
   AiConfig,
   AiMessage,
+  AiUsagePage,
+  AiUsagePoint,
   BackupReport,
   Category,
   ChatMessage,
+  DeleteOutcome,
   DocMeta,
   FileDoc,
   ImportReport,
@@ -62,6 +65,7 @@ export const ipc = {
     lineEnding: LineEnding,
   ) => call<void>("write_text_file", { path, content, encoding, hasBom, lineEnding }),
   takeCliArgs: () => call<string[]>("take_cli_args"),
+  fileMtime: (path: string) => call<number | null>("file_mtime", { path }),
 
   /* 文档库 */
   listLibrary: () => call<LibraryIndex>("list_library"),
@@ -84,7 +88,7 @@ export const ipc = {
   ) => call<DocMeta>("write_doc", { docId, content, encoding, hasBom, lineEnding }),
   renameDoc: (docId: string, title: string) => call<DocMeta>("rename_doc", { docId, title }),
   moveDoc: (docId: string, categoryId: string) => call<void>("move_doc", { docId, categoryId }),
-  deleteDoc: (docId: string) => call<void>("delete_doc", { docId }),
+  deleteDoc: (docId: string) => call<DeleteOutcome>("delete_doc", { docId }),
   setAiReadable: (docId: string, readable: boolean) =>
     call<DocMeta>("set_ai_readable", { docId, readable }),
 
@@ -107,6 +111,8 @@ export const ipc = {
     encoding: string;
     hasBom: boolean;
     lineEnding: LineEnding;
+    source?: "new" | "file";
+    path?: string | null;
   }) => call<void>("save_scratch", args),
   listScratch: () => call<ScratchDoc[]>("list_scratch"),
   readScratch: (tabId: string) => call<FileDoc>("read_scratch", { tabId }),
@@ -160,11 +166,17 @@ export const ipc = {
   aiChat: (args: {
     requestId: string;
     docId: string | null;
+    docTitle: string;
     config: AiConfig;
     messages: AiMessage[];
   }) => call<void>("ai_chat", args),
   aiAbort: (requestId: string) => call<void>("ai_abort", { requestId }),
   aiTestConnection: (config: AiConfig) => call<number>("ai_test_connection", { config }),
+  aiListModels: (provider: string, baseUrl: string, apiKey?: string) =>
+    call<string[]>("ai_list_models", { provider, baseUrl, apiKey }),
+  aiUsageScan: (since: number) => call<AiUsagePoint[]>("ai_usage_scan", { since }),
+  aiUsageRecords: (offset: number, limit: number) =>
+    call<AiUsagePage>("ai_usage_records", { offset, limit }),
 
   quitApp: () => call<void>("quit_app"),
 

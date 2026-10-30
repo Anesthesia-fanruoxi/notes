@@ -1,9 +1,11 @@
+import clsx from "clsx";
 import { useEffect, useRef } from "react";
 import type { EditorView } from "@codemirror/view";
 
 import { markViewTab, setActiveEditorView } from "../editor/activeView";
 import { resolveEditorBackground } from "../editor/background";
-import { applyLanguage, createEditorState, createEditorView } from "../editor/createEditor";
+import { applyLanguage, createEditorState, createEditorView, setLivePreview } from "../editor/createEditor";
+import { closeLivePreviewPopovers } from "../editor/livePreview";
 import { handleEditorUpdate } from "../editor/handleUpdate";
 import {
   findLanguageByName,
@@ -14,6 +16,12 @@ import {
 } from "../editor/languages";
 import { getTabState, putTabState } from "../editor/tabStates";
 import { tierFor, tierHint } from "../editor/tiers";
+import {
+  ignoreExternalChange,
+  reloadTabFromDisk,
+  removeMissingRecord,
+  restoreDeletedFile,
+} from "../lib/documents";
 import { useAppStore } from "../store/useAppStore";
 import styles from "../styles/app.module.css";
 
@@ -34,6 +42,9 @@ export default function EditorPane() {
   const hint = tierHint(tier);
   const editorBackground = useAppStore((state) => state.editorBackground);
   const editorBg = resolveEditorBackground(editorBackground);
+  const livePreview = useAppStore((s) => s.livePreview);
+  const isMarkdown = /\.(md|markdown)$/i.test(filename ?? "");
+  const shouldLive = isMarkdown && livePreview;
 
   useEffect(() => {
     const host = hostRef.current;
@@ -44,6 +55,7 @@ export default function EditorPane() {
     setActiveEditorView(view);
 
     return () => {
+      closeLivePreviewPopovers();
       const previous = prevTabIdRef.current;
       if (previous) putTabState(previous, view.state);
       markViewTab(null);
@@ -68,8 +80,11 @@ export default function EditorPane() {
       putTabState(previous, view.state);
     }
 
-    const state = getTabState(activeTabId) ?? createEditorState("", handleEditorUpdate, tier);
+    const state =
+      getTabState(activeTabId) ??
+      createEditorState("", handleEditorUpdate, tier, shouldLive);
     putTabState(activeTabId, state);
+    closeLivePreviewPopovers();
     view.setState(state);
     view.focus();
     markViewTab(activeTabId);
@@ -126,6 +141,14 @@ export default function EditorPane() {
     };
   }, [activeTabId, filename, override, tier]);
 
+  // 源码 ↔ 实时渲染：只重配一个 compartment，保留撤销栈。
+  useEffect(() => {
+    const view = viewRef.current;
+    if (!view || !activeTabId) return;
+    setLivePreview(view, shouldLive);
+    putTabState(activeTabId, view.state);
+  }, [shouldLive, activeTabId]);
+
   return (
     <main
       className={styles.pane}
@@ -133,6 +156,46 @@ export default function EditorPane() {
       style={editorBg.color ? { backgroundColor: editorBg.color } : undefined}
     >
       {hint && <div className={styles.tierBar}>{hint}</div>}
+      {activeTab?.missing && activeTab.path ? (
+        <div className={clsx(styles.externalBar, styles.externalDanger)}>
+          <span>「{activeTab.title}」已从磁盘删除，编辑器里是最后一份副本。</span>
+          <button
+            type="button"
+            className={styles.externalBtn}
+            onClick={() => void restoreDeletedFile(activeTab.id)}
+          >
+            恢复文件
+          </button>
+          <button
+            type="button"
+            className={styles.externalBtn}
+            onClick={() => void removeMissingRecord(activeTab.id)}
+          >
+            删除记录
+          </button>
+        </div>
+      ) : (
+        activeTab?.external &&
+        activeTab.path && (
+          <div className={styles.externalBar}>
+            <span>「{activeTab.title}」已被外部修改，当前编辑的是副本。</span>
+            <button
+              type="button"
+              className={styles.externalBtn}
+              onClick={() => void reloadTabFromDisk(activeTab.id)}
+            >
+              重新加载
+            </button>
+            <button
+              type="button"
+              className={styles.externalBtn}
+              onClick={() => void ignoreExternalChange(activeTab.id)}
+            >
+              保留当前
+            </button>
+          </div>
+        )
+      )}
       <div ref={hostRef} className={styles.editorHost} />
     </main>
   );

@@ -12,6 +12,33 @@ export interface AiSettings {
   model: string;
   temperature: number;
   scope: AiScope;
+  /** 每个服务商的计费（元 / 百万 tokens），按 provider 存。 */
+  prices: Record<string, AiPrice>;
+}
+
+/** 单价单位：元 / 百万 tokens。全 0 表示不计费用。 */
+export interface AiPrice {
+  input: number;
+  output: number;
+  cacheInput: number;
+}
+
+export const NO_PRICE: AiPrice = { input: 0, output: 0, cacheInput: 0 };
+
+export function priceOf(settings: AiSettings, provider: string): AiPrice {
+  return settings.prices[provider] ?? NO_PRICE;
+}
+
+/** 估算一次调用费用；没配价格返回 null。 */
+export function costOf(
+  usage: { promptTokens: number; completionTokens: number; cacheHitTokens: number },
+  price: AiPrice,
+): number | null {
+  if (!price.input && !price.output && !price.cacheInput) return null;
+  const hit = Math.min(usage.cacheHitTokens, usage.promptTokens);
+  const miss = Math.max(0, usage.promptTokens - hit);
+  const hitRate = price.cacheInput || price.input;
+  return (miss * price.input + hit * hitRate + usage.completionTokens * price.output) / 1_000_000;
 }
 
 interface TemplateInfo {
@@ -31,14 +58,51 @@ export const AI_TEMPLATES: Record<AiTemplate, TemplateInfo> = {
     baseUrl: "https://dashscope.aliyuncs.com/compatible-mode/v1",
     model: "qwen-plus",
   },
+  glm: {
+    label: "GLM Token Plan CN",
+    baseUrl: "https://open.bigmodel.cn/api/paas/v4",
+    model: "glm-4.6",
+  },
+  kimi: {
+    label: "Kimi Token Plan CN",
+    baseUrl: "https://api.moonshot.cn/v1",
+    model: "kimi-latest",
+  },
+  mimo: {
+    label: "MiMo Token Plan CN",
+    baseUrl: "https://token-plan-cn.xiaomimimo.com/v1",
+    model: "",
+  },
+  agnes: {
+    label: "Agnes",
+    baseUrl: "https://apihub.agnes-ai.com/v1",
+    model: "",
+  },
   ollama: {
     label: "本地 Ollama",
     baseUrl: "http://localhost:11434/v1",
     model: "qwen2.5:7b",
   },
+  // 自定义：只支持 OpenAI 协议，地址和模型由用户自己填。
+  custom: {
+    label: "自定义服务商",
+    baseUrl: "",
+    model: "",
+  },
 };
 
-export const AI_TEMPLATE_KEYS: AiTemplate[] = ["deepseek", "qwen", "ollama"];
+/** 常用服务商（不含自定义）。 */
+export const AI_TEMPLATE_KEYS: AiTemplate[] = [
+  "deepseek",
+  "qwen",
+  "glm",
+  "kimi",
+  "mimo",
+  "agnes",
+  "ollama",
+];
+
+export const AI_CUSTOM_TEMPLATE: AiTemplate = "custom";
 
 const DEFAULTS: AiSettings = {
   template: "deepseek",
@@ -46,6 +110,7 @@ const DEFAULTS: AiSettings = {
   model: AI_TEMPLATES.deepseek.model,
   temperature: 0.7,
   scope: "selection",
+  prices: {},
 };
 
 export function loadAiSettings(): AiSettings {
@@ -53,6 +118,7 @@ export function loadAiSettings(): AiSettings {
   return {
     ...DEFAULTS,
     ...stored,
+    prices: stored.prices ?? {},
     temperature:
       typeof stored.temperature === "number"
         ? Math.min(2, Math.max(0, stored.temperature))
@@ -65,6 +131,9 @@ export function saveAiSettings(settings: AiSettings): void {
 }
 
 export function applyTemplate(settings: AiSettings, template: AiTemplate): AiSettings {
+  // 切到自定义时保留当前地址与模型当起点，方便微调。
+  if (template === "custom") return { ...settings, template };
+
   const info = AI_TEMPLATES[template];
   return { ...settings, template, baseUrl: info.baseUrl, model: info.model };
 }

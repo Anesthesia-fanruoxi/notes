@@ -24,6 +24,20 @@ pub fn write_text_file(
     )
 }
 
+/// 文件最后修改时间（毫秒），文件不存在时返回 None。
+#[tauri::command]
+pub fn file_mtime(path: String) -> Result<Option<u64>, String> {
+    let meta = match std::fs::metadata(&path) {
+        Ok(meta) => meta,
+        Err(_) => return Ok(None),
+    };
+    Ok(meta
+        .modified()
+        .ok()
+        .and_then(|time| time.duration_since(std::time::UNIX_EPOCH).ok())
+        .map(|gap| gap.as_millis() as u64))
+}
+
 /// 启动参数里第一个存在的文件会由前端拿去当临时文档打开。
 #[tauri::command]
 pub fn take_cli_args() -> Vec<String> {

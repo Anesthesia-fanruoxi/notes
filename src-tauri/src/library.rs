@@ -65,6 +65,16 @@ pub struct ScratchDoc {
     pub updated_at: i64,
     pub encoding: String,
     pub line_ending: String,
+    /// "new"（+ 新建的临时文件）或 "file"（从磁盘打开、只记路径）。
+    #[serde(default = "default_scratch_source")]
+    pub source: String,
+    /// source = file 时记录原始路径，仅用于提示与展示。
+    #[serde(default)]
+    pub path: Option<String>,
+}
+
+fn default_scratch_source() -> String {
+    "new".to_string()
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -81,6 +91,14 @@ pub struct BackupReport {
     pub path: String,
     pub docs: usize,
     pub categories: usize,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct DeleteOutcome {
+    /// true = 进了系统回收站；false = 系统回收站不可用，已移到应用回收区。
+    pub recycled: bool,
+    pub fallback_path: Option<String>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -625,16 +643,66 @@ pub fn delete_doc(
     paths: &WorkspacePaths,
     index: &mut LibraryIndex,
     doc_id: &str,
-) -> Result<(), String> {
+) -> Result<DeleteOutcome, String> {
     let doc = find_doc(index, doc_id)?.clone();
     let path = doc_path(paths, &doc);
+
+    let mut recycled = false;
+    let mut fallback_path = None;
+
     if path.exists() {
-        // 只进回收站，绝不直接 unlink。
-        trash::delete(&path).map_err(|e| format!("无法移入回收站：{e}"))?;
+        // Windows 的 IFileOperation 偶尔会被系统中止（索引/杀软短暂占用），
+        // 重试一次；仍失败就移到应用回收区，绝不让文件删不掉。
+        match trash_with_retry(&path) {
+            Ok(()) => recycled = true,
+            Err(_) => {
+                fallback_path = Some(move_to_app_trash(paths, &path)?);
+            }
+        }
     }
+
     drop_recovery(paths, doc_id);
     index.docs.retain(|d| d.id != doc_id);
-    save_index(paths, index)
+    save_index(paths, index)?;
+
+    Ok(DeleteOutcome {
+        recycled,
+        fallback_path,
+    })
+}
+
+fn trash_with_retry(path: &Path) -> Result<(), String> {
+    let mut last = String::new();
+    for attempt in 0..2 {
+        match trash::delete(path) {
+            Ok(()) => return Ok(()),
+            Err(err) => {
+                last = err.to_string();
+                if attempt == 0 {
+                    std::thread::sleep(std::time::Duration::from_millis(120));
+                }
+            }
+        }
+    }
+    Err(last)
+}
+
+fn move_to_app_trash(paths: &WorkspacePaths, source: &Path) -> Result<String, String> {
+    let dir = paths.app_data.join("trash");
+    fs::create_dir_all(&dir).map_err(|e| format!("无法创建应用回收区：{e}"))?;
+
+    let name = source
+        .file_name()
+        .and_then(|s| s.to_str())
+        .unwrap_or("deleted");
+    let target = dir.join(format!("{}-{name}", now_ms()));
+
+    if fs::rename(source, &target).is_err() {
+        fs::copy(source, &target).map_err(|e| format!("无法移动到应用回收区：{e}"))?;
+        fs::remove_file(source).map_err(|e| format!("无法移除原文件：{e}"))?;
+    }
+
+    Ok(target.to_string_lossy().to_string())
 }
 
 /* ---------- 导入 / 导出 ---------- */
@@ -721,6 +789,7 @@ pub fn export_doc(
 
 /* ---------- 临时文档 ---------- */
 
+#[allow(clippy::too_many_arguments)]
 pub fn save_scratch(
     paths: &WorkspacePaths,
     tab_id: &str,
@@ -729,6 +798,8 @@ pub fn save_scratch(
     encoding_name: &str,
     has_bom: bool,
     line_ending: &str,
+    source: &str,
+    path: Option<&str>,
 ) -> Result<(), String> {
     encoding::write(
         &paths.scratch.join(format!("{tab_id}.md")),
@@ -743,6 +814,8 @@ pub fn save_scratch(
         updated_at: now_ms(),
         encoding: encoding_name.to_string(),
         line_ending: line_ending.to_string(),
+        source: source.to_string(),
+        path: path.map(str::to_string),
     };
     let bytes = serde_json::to_vec_pretty(&meta).map_err(|e| e.to_string())?;
     write_atomic(&paths.scratch.join(format!("{tab_id}.json")), &bytes)
@@ -1433,11 +1506,23 @@ mod tests {
     #[test]
     fn scratch_roundtrip_keeps_encoding() {
         let paths = temp_paths();
-        save_scratch(&paths, "tab-1", "会议记录", "中文内容", "GBK", false, "CRLF").unwrap();
+        save_scratch(
+            &paths,
+            "tab-1",
+            "会议记录",
+            "中文内容",
+            "GBK",
+            false,
+            "CRLF",
+            "new",
+            None,
+        )
+        .unwrap();
 
         let listed = list_scratch(&paths);
         assert_eq!(listed.len(), 1);
         assert_eq!(listed[0].encoding, "GBK");
+        assert_eq!(listed[0].source, "new");
 
         let doc = read_scratch(&paths, "tab-1").unwrap();
         assert_eq!(doc.content, "中文内容");

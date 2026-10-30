@@ -1,5 +1,6 @@
 import clsx from "clsx";
 
+import { addTempTab } from "../lib/scratch";
 import { requestCloseTab } from "../lib/tabActions";
 import { useAppStore } from "../store/useAppStore";
 import styles from "../styles/app.module.css";
@@ -8,7 +9,6 @@ export default function TabBar() {
   const tabs = useAppStore((s) => s.tabs);
   const activeTabId = useAppStore((s) => s.activeTabId);
   const setActiveTab = useAppStore((s) => s.setActiveTab);
-  const addTab = useAppStore((s) => s.addTab);
 
   return (
     <div className={styles.tabbar} role="tablist" aria-label="打开的文档">
@@ -19,7 +19,11 @@ export default function TabBar() {
             key={tab.id}
             role="tab"
             aria-selected={active}
-            className={clsx(styles.tab, active && styles.tabActive)}
+            className={clsx(
+              styles.tab,
+              tab.kind === "temp" ? styles.tabTempKind : styles.tabLibraryKind,
+              active && styles.tabActive,
+            )}
             onMouseDown={(event) => {
               if (event.button === 1) {
                 event.preventDefault();
@@ -49,7 +53,7 @@ export default function TabBar() {
         type="button"
         className={styles.tabAdd}
         title="新建文档（Ctrl+N）"
-        onClick={() => addTab({ title: "未命名" })}
+        onClick={() => addTempTab()}
       >
         +
       </button>

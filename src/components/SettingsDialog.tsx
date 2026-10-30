@@ -1,5 +1,6 @@
 import clsx from "clsx";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 
 import { stopRecovery } from "../editor/recovery";
 import {
@@ -8,17 +9,22 @@ import {
 } from "../editor/background";
 import { dropTabState } from "../editor/tabStates";
 import {
+  AI_CUSTOM_TEMPLATE,
   AI_TEMPLATE_KEYS,
   AI_TEMPLATES,
+  NO_PRICE,
   aiConfigOf,
   applyTemplate,
   loadAiSettings,
   saveAiSettings,
+  type AiPrice,
   type AiSettings,
 } from "../lib/ai";
+import { copyText } from "../lib/clipboard";
 import { pickDirectory, refreshLibrary } from "../lib/documents";
 import { ipc } from "../lib/ipc";
 import type { AiTemplate } from "../lib/types";
+import UsagePanel from "./UsagePanel";
 import {
   useAppStore,
   type SettingsSection,
@@ -29,6 +35,7 @@ import styles from "../styles/app.module.css";
 const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: "general", label: "通用" },
   { id: "ai", label: "AI" },
+  { id: "usage", label: "用量" },
   { id: "editor", label: "编辑器" },
   { id: "library", label: "文档库" },
   { id: "shortcuts", label: "快捷键" },
@@ -50,7 +57,9 @@ const SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Ctrl+F / Ctrl+H", label: "查找 / 替换" },
   { keys: "Ctrl+P", label: "快速打开" },
   { keys: "Ctrl+,", label: "设置" },
-  { keys: "Ctrl+/", label: "开关 AI 侧栏" },
+  { keys: "Ctrl+/", label: "注释 / 取消注释" },
+  { keys: "Ctrl+Shift+V", label: "Markdown 实时渲染 / 源码切换" },
+  { keys: "Ctrl+Shift+/", label: "开关 AI 侧栏" },
   { keys: "Esc", label: "关闭浮层 / 面板" },
 ];
 
@@ -81,9 +90,36 @@ export default function SettingsDialog() {
   const [ai, setAi] = useState<AiSettings>(loadAiSettings);
   const [keyStatus, setKeyStatus] = useState(false);
   const [keyInput, setKeyInput] = useState("");
-  const [keyBusy, setKeyBusy] = useState(false);
   const [testBusy, setTestBusy] = useState(false);
   const [testResult, setTestResult] = useState("");
+  // AI 配置改成显式保存：改动先进草稿，点右下角「保存」才写偏好。
+  const [aiDirty, setAiDirty] = useState(false);
+  const [saveHint, setSaveHint] = useState("");
+
+  // 服务模板分两个标签页：常用服务商 / 自定义（只走 OpenAI 协议）。
+  const [templateTab, setTemplateTab] = useState<"common" | "custom">(
+    ai.template === AI_CUSTOM_TEMPLATE ? "custom" : "common",
+  );
+  const [lastCommon, setLastCommon] = useState<AiTemplate>(
+    ai.template === AI_CUSTOM_TEMPLATE ? "deepseek" : ai.template,
+  );
+  const [models, setModels] = useState<string[]>([]);
+  const [modelsBusy, setModelsBusy] = useState(false);
+  const [modelsMessage, setModelsMessage] = useState("");
+  const [modelsOpen, setModelsOpen] = useState(false);
+  const [urlCopied, setUrlCopied] = useState(false);
+  // 下拉用 portal 渲染，位置按输入框实测坐标算，避免被设置页滚动区裁掉。
+  const [listPos, setListPos] = useState<{
+    left: number;
+    width: number;
+    top: number;
+    maxHeight: number;
+  } | null>(null);
+  const modelInputRef = useRef<HTMLInputElement>(null);
+  // 最近一次成功拉取时的「模板|地址」，避免反复点输入框重复请求。
+  const fetchedForRef = useRef("");
+  // 同步锁：focus 与 click 可能连着触发两次。
+  const fetchingRef = useRef(false);
 
   const [shortcutDraft, setShortcutDraft] = useState(globalShortcut);
   const [shortcutMessage, setShortcutMessage] = useState("");
@@ -107,52 +143,137 @@ export default function SettingsDialog() {
   }, [refreshKey]);
 
   const updateAi = (patch: Partial<AiSettings>) => {
-    const next = { ...ai, ...patch };
-    setAi(next);
-    saveAiSettings(next);
-    // 范围会影响面板的上下文条，立刻同步；其余字段发请求时再读。
-    if (patch.scope !== undefined) bumpAiSettings();
+    setAi({ ...ai, ...patch });
+    setAiDirty(true);
+    setSaveHint("");
+  };
+
+  const isCustom = ai.template === AI_CUSTOM_TEMPLATE;
+  const price = ai.prices[ai.template] ?? NO_PRICE;
+  const updatePrice = (patch: Partial<AiPrice>) => {
+    updateAi({ prices: { ...ai.prices, [ai.template]: { ...price, ...patch } } });
+  };
+
+  const copyBaseUrl = async () => {
+    if (!(await copyText(ai.baseUrl.trim()))) return;
+    setUrlCopied(true);
+    window.setTimeout(() => setUrlCopied(false), 1200);
   };
 
   const changeTemplate = (template: AiTemplate) => {
-    const next = applyTemplate(ai, template);
-    setAi(next);
-    saveAiSettings(next);
+    setAi(applyTemplate(ai, template));
+    setAiDirty(true);
+    setSaveHint("");
     setTestResult("");
+    setModels([]);
+    setModelsMessage("");
+    fetchedForRef.current = "";
+  };
+
+  // 所有 AI 配置改完后点右下角「保存」才落盘；顺手把还没保存的 Key 一起写进凭据管理器。
+  const saveAi = async () => {
+    let keyError = "";
+    if (keyInput.trim()) {
+      try {
+        await ipc.setSecret(ai.template, keyInput.trim());
+        setKeyInput("");
+        setKeyStatus(true);
+      } catch (err) {
+        keyError = err instanceof Error ? err.message : "密钥保存失败";
+      }
+    }
+    saveAiSettings(ai);
     bumpAiSettings();
+    setAiDirty(false);
+    setSaveHint(keyError ? `配置已保存，但密钥保存失败：${keyError}` : "AI 配置已保存");
   };
 
-  const saveKey = async () => {
-    if (!keyInput.trim()) return;
-    setKeyBusy(true);
-    setTestResult("");
+  const pickCommonTemplate = (template: AiTemplate) => {
+    setLastCommon(template);
+    changeTemplate(template);
+  };
+
+  const switchTemplateTab = (tab: "common" | "custom") => {
+    if (tab === templateTab) return;
+    setTemplateTab(tab);
+    changeTemplate(tab === "custom" ? AI_CUSTOM_TEMPLATE : lastCommon);
+  };
+
+  // 按当前 Base URL + Key 拉取模型列表；没保存的 Key 只在这次请求里用，不落库。
+  const fetchModels = async () => {
+    if (fetchingRef.current) return;
+    fetchingRef.current = true;
+    setModelsBusy(true);
+    setModelsMessage("");
     try {
-      await ipc.setSecret(ai.template, keyInput.trim());
-      setKeyInput("");
-      setKeyStatus(true);
-      setTestResult("密钥已保存到 Windows 凭据管理器。");
-      bumpAiSettings();
+      const list = await ipc.aiListModels(
+        ai.template,
+        ai.baseUrl.trim(),
+        keyInput.trim() || undefined,
+      );
+      setModels(list);
+      fetchedForRef.current = `${ai.template}|${ai.baseUrl.trim()}`;
+      setModelsMessage(`已获取 ${list.length} 个模型`);
+      // 只在模型为空时补一个默认值，别覆盖用户手动填的。
+      if (!ai.model.trim()) updateAi({ model: list[0] });
     } catch (err) {
-      setTestResult(err instanceof Error ? err.message : "保存密钥失败");
+      setModels([]);
+      setModelsMessage(err instanceof Error ? err.message : "获取模型失败");
     } finally {
-      setKeyBusy(false);
+      fetchingRef.current = false;
+      setModelsBusy(false);
     }
   };
 
-  const clearKey = async () => {
-    setKeyBusy(true);
-    setTestResult("");
-    try {
-      await ipc.clearSecret(ai.template);
-      setKeyStatus(false);
-      bumpAiSettings();
-      setTestResult("已清除该模板的密钥。");
-    } catch (err) {
-      setTestResult(err instanceof Error ? err.message : "清除密钥失败");
-    } finally {
-      setKeyBusy(false);
+  // 点进模型输入框就自动拉取；同一模板 + 地址只拉一次，失败后点一下可重试。
+  const autoFetchModels = () => {
+    if (fetchingRef.current) return;
+    if (fetchedForRef.current === `${ai.template}|${ai.baseUrl.trim()}`) return;
+    if (!ai.baseUrl.trim()) {
+      setModelsMessage("先填写 Base URL，再点模型框拉取列表");
+      return;
     }
+    if (!keyStatus && !keyInput.trim()) {
+      setModelsMessage("先保存 API Key，再点模型框拉取列表");
+      return;
+    }
+    void fetchModels();
   };
+
+  // 下拉贴着输入框，空间不够就向上翻。
+  const positionModelList = () => {
+    const input = modelInputRef.current;
+    if (!input) return null;
+    const rect = input.getBoundingClientRect();
+    const below = window.innerHeight - rect.bottom - 12;
+    const above = rect.top - 12;
+    const upward = below < 180 && above > below;
+    const maxHeight = Math.min(320, Math.max(120, upward ? above : below));
+    return {
+      left: rect.left,
+      width: rect.width,
+      top: upward ? Math.max(8, rect.top - maxHeight - 4) : rect.bottom + 4,
+      maxHeight,
+    };
+  };
+
+  const openModelList = () => {
+    setListPos(positionModelList());
+    setModelsOpen(true);
+    autoFetchModels();
+  };
+
+  // 面板滚动 / 窗口缩放时跟着输入框走。
+  useEffect(() => {
+    if (!modelsOpen) return;
+    const sync = () => setListPos(positionModelList());
+    window.addEventListener("resize", sync);
+    window.addEventListener("scroll", sync, true);
+    return () => {
+      window.removeEventListener("resize", sync);
+      window.removeEventListener("scroll", sync, true);
+    };
+  }, [modelsOpen]);
 
   const testConnection = async () => {
     setTestBusy(true);
@@ -293,73 +414,121 @@ export default function SettingsDialog() {
               <>
                 <div className={styles.field}>
                   <label className={styles.fieldLabel}>服务模板</label>
-                  <select
-                    className={styles.select}
-                    value={ai.template}
-                    onChange={(event) => changeTemplate(event.target.value as AiTemplate)}
-                  >
-                    {AI_TEMPLATE_KEYS.map((key) => (
-                      <option key={key} value={key}>
-                        {AI_TEMPLATES[key].label}
-                      </option>
-                    ))}
-                  </select>
+                  <div className={styles.seg}>
+                    <button
+                      type="button"
+                      className={clsx(styles.segBtn, templateTab === "common" && styles.segActive)}
+                      onClick={() => switchTemplateTab("common")}
+                    >
+                      常用服务商
+                    </button>
+                    <button
+                      type="button"
+                      className={clsx(styles.segBtn, templateTab === "custom" && styles.segActive)}
+                      onClick={() => switchTemplateTab("custom")}
+                    >
+                      自定义服务商
+                    </button>
+                  </div>
+                  {templateTab === "common" ? (
+                    <select
+                      className={styles.select}
+                      style={{ marginTop: 8 }}
+                      value={ai.template === AI_CUSTOM_TEMPLATE ? lastCommon : ai.template}
+                      onChange={(event) =>
+                        pickCommonTemplate(event.target.value as AiTemplate)
+                      }
+                    >
+                      {AI_TEMPLATE_KEYS.map((key) => (
+                        <option key={key} value={key}>
+                          {AI_TEMPLATES[key].label}
+                        </option>
+                      ))}
+                    </select>
+                  ) : (
+                    <div className={styles.desc} style={{ marginTop: 8 }}>
+                      自定义服务商只支持 OpenAI 协议：填到 /v1 的 Base URL，再用下方按钮拉取模型。
+                    </div>
+                  )}
                   <div className={styles.desc}>切换模板会填入该服务的 Base URL 与默认模型。</div>
                 </div>
 
                 <div className={styles.field}>
                   <label className={styles.fieldLabel}>Base URL</label>
-                  <input
-                    className={styles.input}
-                    value={ai.baseUrl}
-                    spellCheck={false}
-                    onChange={(event) => updateAi({ baseUrl: event.target.value })}
-                  />
-                  <div className={styles.desc}>OpenAI 兼容接口，通常填到 /v1 即可。</div>
+                  <div className={styles.actionRow} style={{ marginBottom: 0 }}>
+                    <input
+                      className={clsx(styles.input, !isCustom && styles.inputLocked)}
+                      style={{ flex: 1, width: "auto", minWidth: 0 }}
+                      value={ai.baseUrl}
+                      spellCheck={false}
+                      disabled={!isCustom}
+                      onChange={(event) => {
+                        // 地址变了，模型列表就作废，下次点模型框重新拉。
+                        updateAi({ baseUrl: event.target.value });
+                        setModels([]);
+                        setModelsMessage("");
+                        fetchedForRef.current = "";
+                      }}
+                    />
+                    {!isCustom && (
+                      <button
+                        type="button"
+                        className={styles.btn}
+                        onClick={() => void copyBaseUrl()}
+                      >
+                        {urlCopied ? "已复制" : "复制"}
+                      </button>
+                    )}
+                  </div>
+                  <div className={styles.desc}>
+                    {isCustom
+                      ? "只支持 OpenAI 兼容协议，通常填到 /v1 即可。"
+                      : "常用服务商的地址固定；要改地址请切到「自定义服务商」。"}
+                  </div>
                 </div>
 
                 <div className={styles.field}>
                   <label className={styles.fieldLabel}>API Key</label>
-                  <div className={styles.actionRow}>
-                    <input
-                      className={styles.input}
-                      style={{ flex: 1, width: "auto", minWidth: 0 }}
-                      type="password"
-                      value={keyInput}
-                      placeholder={keyStatus ? "已配置，输入新 Key 可替换" : "未配置"}
-                      onChange={(event) => setKeyInput(event.target.value)}
-                    />
-                    <button
-                      type="button"
-                      className={`${styles.btn} ${styles.btnPrimary}`}
-                      disabled={keyBusy || !keyInput.trim()}
-                      onClick={() => void saveKey()}
-                    >
-                      保存
-                    </button>
-                    <button
-                      type="button"
-                      className={styles.btn}
-                      disabled={keyBusy || !keyStatus}
-                      onClick={() => void clearKey()}
-                    >
-                      清除
-                    </button>
-                  </div>
+                  <input
+                    className={styles.input}
+                    type="password"
+                    value={keyInput}
+                    placeholder={keyStatus ? "已配置，输入新 Key 可替换" : "未配置"}
+                    onChange={(event) => {
+                      setKeyInput(event.target.value);
+                      if (event.target.value.trim()) {
+                        setAiDirty(true);
+                        setSaveHint("");
+                      }
+                    }}
+                  />
                   <div className={styles.desc}>
-                    Key 只存 Windows 凭据管理器；界面和日志里只有「是否已配置」。
+                    Key 只存 Windows 凭据管理器；界面和日志里只有「是否已配置」。填好后点右下角「保存」写入。
                     {keyStatus ? " 当前：已配置。" : " 当前：未配置。"}
                   </div>
                 </div>
 
                 <div className={styles.field}>
                   <label className={styles.fieldLabel}>模型</label>
-                  <input
-                    className={styles.input}
-                    value={ai.model}
-                    spellCheck={false}
-                    onChange={(event) => updateAi({ model: event.target.value })}
-                  />
+                  <div className={styles.modelField}>
+                    <input
+                      ref={modelInputRef}
+                      className={styles.input}
+                      value={ai.model}
+                      spellCheck={false}
+                      placeholder={
+                        modelsBusy ? "正在获取模型…" : "点这里拉取模型，或直接填写模型名"
+                      }
+                      onFocus={openModelList}
+                      onClick={openModelList}
+                      onBlur={() => setModelsOpen(false)}
+                      onKeyDown={(event) => {
+                        if (event.key === "Escape") setModelsOpen(false);
+                      }}
+                      onChange={(event) => updateAi({ model: event.target.value })}
+                    />
+                  </div>
+                  {modelsMessage && <div className={styles.desc}>{modelsMessage}</div>}
                 </div>
 
                 <div className={styles.field}>
@@ -373,6 +542,53 @@ export default function SettingsDialog() {
                     value={ai.temperature}
                     onChange={(event) => updateAi({ temperature: Number(event.target.value) })}
                   />
+                  <div className={styles.desc}>
+                    回答的随机度，范围 0–2。数值越大越发散、越有变化；越小越稳定、越贴近固定答案。写作用 0.7 左右，要可复现的结果调到 0.2。
+                  </div>
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>计费（元 / 百万 tokens）</label>
+                  <div className={styles.priceRow}>
+                    <label className={styles.priceCell}>
+                      <span>输入</span>
+                      <input
+                        className={styles.input}
+                        type="number"
+                        min={0}
+                        step="0.1"
+                        value={price.input}
+                        onChange={(event) => updatePrice({ input: Number(event.target.value) || 0 })}
+                      />
+                    </label>
+                    <label className={styles.priceCell}>
+                      <span>输出</span>
+                      <input
+                        className={styles.input}
+                        type="number"
+                        min={0}
+                        step="0.1"
+                        value={price.output}
+                        onChange={(event) => updatePrice({ output: Number(event.target.value) || 0 })}
+                      />
+                    </label>
+                    <label className={styles.priceCell}>
+                      <span>缓存命中</span>
+                      <input
+                        className={styles.input}
+                        type="number"
+                        min={0}
+                        step="0.1"
+                        value={price.cacheInput}
+                        onChange={(event) =>
+                          updatePrice({ cacheInput: Number(event.target.value) || 0 })
+                        }
+                      />
+                    </label>
+                  </div>
+                  <div className={styles.desc}>
+                    只用于「用量」页估算费用，不影响请求。全填 0 表示不计费用；缓存命中价留空按输入价算。
+                  </div>
                 </div>
 
                 <div className={styles.field}>
@@ -402,6 +618,8 @@ export default function SettingsDialog() {
                 {testResult && <div className={styles.desc}>{testResult}</div>}
               </>
             )}
+
+            {section === "usage" && <UsagePanel />}
 
             {section === "editor" && (
               <>
@@ -610,12 +828,57 @@ export default function SettingsDialog() {
         </div>
 
         <div className={styles.mFt}>
+          {saveHint && <span className={styles.mFtHint}>{saveHint}</span>}
+          {aiDirty && !saveHint && <span className={styles.mFtHint}>AI 配置有改动未保存</span>}
           <span className={styles.mFtSpacer} />
           <button type="button" className={styles.btn} onClick={() => closeDialog("none")}>
             关闭
           </button>
+          {(section === "ai" || aiDirty) && (
+            <button
+              type="button"
+              className={clsx(styles.btn, styles.btnPrimary)}
+              disabled={!aiDirty}
+              onClick={() => void saveAi()}
+            >
+              保存
+            </button>
+          )}
         </div>
       </div>
+
+      {modelsOpen &&
+        models.length > 0 &&
+        listPos &&
+        createPortal(
+          <div
+            className={styles.modelList}
+            role="listbox"
+            style={{
+              left: listPos.left,
+              width: listPos.width,
+              top: listPos.top,
+              maxHeight: listPos.maxHeight,
+            }}
+          >
+            {models.map((name) => (
+              <button
+                key={name}
+                type="button"
+                className={clsx(styles.modelItem, name === ai.model && styles.modelItemActive)}
+                // 阻止默认按下行为，避免输入框先失焦导致列表消失。
+                onMouseDown={(event) => event.preventDefault()}
+                onClick={() => {
+                  updateAi({ model: name });
+                  setModelsOpen(false);
+                }}
+              >
+                {name}
+              </button>
+            ))}
+          </div>,
+          document.body,
+        )}
     </div>
   );
 }

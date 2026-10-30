@@ -28,6 +28,8 @@ export default function StatusBar() {
   const themeMode = useAppStore((s) => s.themeMode);
   const fontSize = useAppStore((s) => s.fontSize);
   const toggleAi = useAppStore((s) => s.toggleAi);
+  const livePreview = useAppStore((s) => s.livePreview);
+  const toggleLivePreview = useAppStore((s) => s.toggleLivePreview);
   const cycleTheme = useAppStore((s) => s.cycleTheme);
   const cycleFontSize = useAppStore((s) => s.cycleFontSize);
   const setLanguageOverride = useAppStore((s) => s.setLanguageOverride);
@@ -40,6 +42,7 @@ export default function StatusBar() {
   const categoryName = activeDoc
     ? categories.find((category) => category.id === activeDoc.categoryId)?.name ?? "未分类"
     : "临时";
+  const isMarkdown = /\.(md|markdown)$/i.test(activeTab?.filename ?? "");
 
   return (
     <footer className={styles.status}>
@@ -123,8 +126,23 @@ export default function StatusBar() {
 
       <button
         type="button"
+        className={clsx(
+          styles.statusItem,
+          styles.statusClickable,
+          livePreview && isMarkdown && styles.statusOn,
+        )}
+        disabled={!isMarkdown}
+        title={isMarkdown ? "Ctrl+Shift+V 切换实时渲染 / 源码" : "仅 Markdown 文档支持实时渲染"}
+        onClick={toggleLivePreview}
+      >
+        {livePreview ? "实时渲染" : "源码"}
+      </button>
+      <span className={styles.sep} />
+
+      <button
+        type="button"
         className={clsx(styles.statusItem, styles.statusClickable, aiOpen && styles.statusOn)}
-        title="AI 面板（Ctrl+/）"
+        title="AI 面板（Ctrl+Shift+/）"
         onClick={toggleAi}
       >
         AI

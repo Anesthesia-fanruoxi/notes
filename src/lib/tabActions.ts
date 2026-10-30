@@ -1,49 +1,22 @@
-import { cancelScratch } from "../editor/autosave";
-import { stopRecovery } from "../editor/recovery";
+import { cancelScratch, flushScratchNow } from "../editor/autosave";
+import { flushRecoveryNow, stopRecovery } from "../editor/recovery";
 import { dropTabState } from "../editor/tabStates";
-import { useAppStore, type CloseMode } from "../store/useAppStore";
+import { useAppStore } from "../store/useAppStore";
 import { forgetTempAiState } from "./ai";
-import { saveLibraryTab } from "./documents";
-import { ipc } from "./ipc";
 
 /**
- * 关闭 / 退出前的唯一确认入口。
- * 确认框是应用内组件（CloseConfirmDialog），这里用 Promise 串行等待用户选择；
- * 临时文档选「保存到库」时复用 SaveToLibraryDialog，并等它真正保存完。
+ * 关闭 / 退出：所有未保存内容都落快照（临时文件落 scratch，常驻落 recovery），
+ * 一律不弹确认，下次打开直接接着改。
  */
-type CloseChoice = "save" | "discard" | "cancel";
 
-let closeResolver: ((choice: CloseChoice) => void) | null = null;
+/** 兼容旧确认框：现在关闭不再询问，这里只负责收掉残留的弹层状态。 */
+export function answerClose(_choice?: "save" | "discard" | "cancel"): void {
+  useAppStore.getState().setClosePrompt(null);
+}
+
 let saveResolver: ((saved: boolean) => void) | null = null;
 
-function askClose(tabId: string, mode: CloseMode): Promise<CloseChoice> {
-  // 已有确认框时忽略新的请求，避免覆盖正在等待的 Promise。
-  if (closeResolver) return Promise.resolve("cancel");
-  return new Promise((resolve) => {
-    closeResolver = resolve;
-    useAppStore.getState().setClosePrompt({ tabId, mode });
-  });
-}
-
-/** CloseConfirmDialog 的三个按钮都走这里。 */
-export function answerClose(choice: CloseChoice): void {
-  useAppStore.getState().setClosePrompt(null);
-  const resolve = closeResolver;
-  closeResolver = null;
-  resolve?.(choice);
-}
-
-function askSaveToLibrary(tabId: string): Promise<boolean> {
-  if (saveResolver) return Promise.resolve(false);
-  return new Promise((resolve) => {
-    saveResolver = resolve;
-    // 关闭非活动标签时也要让保存对话框展示正确的那篇。
-    useAppStore.getState().setActiveTab(tabId);
-    useAppStore.getState().openDialog("save");
-  });
-}
-
-/** SaveToLibraryDialog 保存成功 / 取消时调用。 */
+/** SaveToLibraryDialog 保存成功 / 取消时调用（关闭流程已不再等待它）。 */
 export function resolveSaveToLibrary(saved: boolean): void {
   const resolve = saveResolver;
   saveResolver = null;
@@ -54,51 +27,30 @@ function cleanupTab(id: string): void {
   const tab = useAppStore.getState().tabs.find((item) => item.id === id);
   if (!tab) return;
 
+  // 临时文档：关闭标签只收起视图，文件留在临时目录，由侧栏记录管理。
   if (tab.kind === "temp") {
     cancelScratch(id);
     forgetTempAiState(id);
-    void ipc.dropScratch(id).catch(() => undefined);
   }
   if (tab.docId) {
     stopRecovery(id);
-    void ipc.dropRecovery(tab.docId).catch(() => undefined);
   }
   dropTabState(id);
-}
-
-function closeNow(id: string): void {
-  cleanupTab(id);
-  useAppStore.getState().closeTab(id);
-}
-
-async function saveThenClose(id: string): Promise<boolean> {
-  const tab = useAppStore.getState().tabs.find((item) => item.id === id);
-  if (!tab) return true;
-
-  if (tab.kind === "library") {
-    try {
-      await saveLibraryTab(id);
-    } catch (err) {
-      window.alert(err instanceof Error ? err.message : "保存失败");
-      return false;
-    }
-    return true;
-  }
-
-  return askSaveToLibrary(id);
 }
 
 export async function confirmCloseTab(id: string): Promise<boolean> {
   const tab = useAppStore.getState().tabs.find((item) => item.id === id);
   if (!tab) return true;
 
-  if (tab.dirty) {
-    const choice = await askClose(id, "close");
-    if (choice === "cancel") return false;
-    if (choice === "save" && !(await saveThenClose(id))) return false;
+  // 关闭标签只收起视图：临时文件落 scratch，常驻文档落 recovery 快照，
+  // 下次打开仍是这一版，所以一律不弹确认。
+  if (tab.kind === "temp") {
+    await flushScratchNow(id);
+  } else {
+    await flushRecoveryNow(id);
   }
-
-  closeNow(id);
+  cleanupTab(id);
+  useAppStore.getState().closeTab(id);
   return true;
 }
 
@@ -112,31 +64,15 @@ export function closeActiveTab(): void {
 }
 
 /**
- * 退出应用：逐个处理脏标签。先把所有选择问完，
- * 再统一执行丢弃，避免中途取消时把前面已经丢掉的内容弄丢。
+ * 退出应用：所有未保存的改动都落快照，不弹确认。
+ * 下次打开文档时直接接着改（临时文件同理）。
  */
 export async function confirmExit(): Promise<boolean> {
-  const dirty = useAppStore
-    .getState()
-    .tabs.filter((tab) => tab.dirty)
-    .map((tab) => tab.id);
-
-  const discards: string[] = [];
-
-  for (const id of dirty) {
-    const current = useAppStore.getState().tabs.find((tab) => tab.id === id);
-    if (!current?.dirty) continue;
-
-    const choice = await askClose(id, "exit");
-    if (choice === "cancel") return false;
-
-    if (choice === "save") {
-      if (!(await saveThenClose(id))) return false;
-    } else {
-      discards.push(id);
-    }
-  }
-
-  for (const id of discards) cleanupTab(id);
+  const tabs = useAppStore.getState().tabs;
+  await Promise.all(
+    tabs.map((tab) =>
+      tab.kind === "temp" ? flushScratchNow(tab.id) : flushRecoveryNow(tab.id),
+    ),
+  );
   return true;
 }

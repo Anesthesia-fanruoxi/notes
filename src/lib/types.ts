@@ -44,6 +44,10 @@ export interface ScratchDoc {
   updatedAt: number;
   encoding: string;
   lineEnding: LineEnding;
+  /** new：+ 新建的临时文件；file：从磁盘打开、只记路径。 */
+  source: "new" | "file";
+  /** source = file 时的原始路径。 */
+  path: string | null;
 }
 
 export interface ImportReport {
@@ -58,6 +62,12 @@ export interface BackupReport {
   categories: number;
 }
 
+export interface DeleteOutcome {
+  /** true = 已进系统回收站；false = 已落到应用回收区。 */
+  recycled: boolean;
+  fallbackPath: string | null;
+}
+
 export type ChatRole = "user" | "assistant" | "system";
 
 export interface ChatMessage {
@@ -68,7 +78,15 @@ export interface ChatMessage {
 
 /* ---------- AI ---------- */
 
-export type AiTemplate = "deepseek" | "qwen" | "ollama";
+export type AiTemplate =
+  | "deepseek"
+  | "qwen"
+  | "glm"
+  | "kimi"
+  | "mimo"
+  | "agnes"
+  | "ollama"
+  | "custom";
 export type AiScope = "selection" | "document";
 
 export interface AiConfig {
@@ -76,6 +94,32 @@ export interface AiConfig {
   baseUrl: string;
   model: string;
   temperature: number;
+}
+
+/* ---------- AI 用量 ---------- */
+
+export interface AiUsagePoint {
+  ts: number;
+  provider: string;
+  model: string;
+  promptTokens: number;
+  completionTokens: number;
+  totalTokens: number;
+  cacheHitTokens: number;
+}
+
+export interface AiUsageRecord extends AiUsagePoint {
+  docId: string | null;
+  docTitle: string;
+  cacheMissTokens: number;
+  cachedTokens: number;
+  durationMs: number;
+  promptPreview: string;
+}
+
+export interface AiUsagePage {
+  total: number;
+  items: AiUsageRecord[];
 }
 
 export interface AiMessage {

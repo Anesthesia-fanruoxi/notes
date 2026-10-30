@@ -11,16 +11,13 @@ import StatusBar from "./components/StatusBar";
 import TabBar from "./components/TabBar";
 import VersionDialog from "./components/VersionDialog";
 import { getActiveEditorView } from "./editor/activeView";
-import { replaceTabContent } from "./editor/content";
 import { createEditorState } from "./editor/createEditor";
 import { handleEditorUpdate } from "./editor/handleUpdate";
-import { noteDirty } from "./editor/recovery";
 import { openFind } from "./editor/search";
 import { putTabState } from "./editor/tabStates";
 import {
   activeTab,
   exportTab,
-  openLibraryDoc,
   openPaths,
   pickAndOpenFiles,
   pickDirectory,
@@ -30,6 +27,7 @@ import {
 import { applyGlobalShortcut } from "./lib/globalShortcut";
 import { ipc } from "./lib/ipc";
 import { writePref } from "./lib/prefs";
+import { addTempTab } from "./lib/scratch";
 import { answerClose, closeActiveTab, confirmExit } from "./lib/tabActions";
 import { useAppStore } from "./store/useAppStore";
 import styles from "./styles/app.module.css";
@@ -38,7 +36,8 @@ export default function App() {
   const aiOpen = useAppStore((s) => s.aiOpen);
   const dialog = useAppStore((s) => s.dialog);
   const toggleAi = useAppStore((s) => s.toggleAi);
-  const addTab = useAppStore((s) => s.addTab);
+  const toggleLivePreview = useAppStore((s) => s.toggleLivePreview);
+  const livePreview = useAppStore((s) => s.livePreview);
   const cycleTab = useAppStore((s) => s.cycleTab);
   const openDialog = useAppStore((s) => s.openDialog);
 
@@ -68,13 +67,17 @@ export default function App() {
 
       try {
         const scratches = await ipc.listScratch();
+        useAppStore.getState().setScratchDocs(scratches);
         let restored = 0;
         for (const item of scratches.slice(0, 10)) {
           const doc = await ipc.readScratch(item.tabId);
+          const name = item.path ? item.path.split(/[\\/]/).pop() ?? item.title : item.title;
           useAppStore.getState().addRestoredTab(item.tabId, {
             title: item.title,
             kind: "temp",
-            filename: item.title,
+            filename: name,
+            scratchSource: item.source,
+            path: item.path ?? undefined,
             encoding: doc.encoding,
             hasBom: doc.hasBom,
             lineEnding: doc.lineEnding,
@@ -96,48 +99,14 @@ export default function App() {
         console.warn("[scratch] 恢复失败", err);
       }
 
-      // 常驻文档的未保存改动（PROMPT §5.5）。
+      // 常驻文档的草稿快照不再在启动时弹窗：打开文档时自动接着改。
+      // 只清理索引里已经不存在的手残留快照。
       try {
         const recoveries = await ipc.listRecovery();
-        if (recoveries.length > 0 && !cancelled) {
-          const shouldRestore = window.confirm(
-            `上次有 ${recoveries.length} 个文档未正常关闭，是否恢复未保存的内容？`,
-          );
-
-          for (const item of recoveries) {
-            if (!shouldRestore) {
-              await ipc.dropRecovery(item.docId).catch(() => undefined);
-              continue;
-            }
-            const known = useAppStore.getState().docs.some((doc) => doc.id === item.docId);
-            if (!known) {
-              // 索引没读成功时不要误删，等下次启动再判断。
-              if (libraryLoaded) {
-                await ipc.dropRecovery(item.docId).catch(() => undefined);
-              }
-              continue;
-            }
-
-            try {
-              const snap = await ipc.readRecovery(item.docId);
-              await openLibraryDoc(item.docId);
-              const tab = useAppStore
-                .getState()
-                .tabs.find((candidate) => candidate.docId === item.docId);
-              if (!tab) continue;
-
-              replaceTabContent(tab.id, snap.content);
-              useAppStore.getState().updateTab(tab.id, {
-                dirty: true,
-                encoding: snap.encoding,
-                hasBom: snap.hasBom,
-                lineEnding: snap.lineEnding,
-              });
-              // 非活动标签不会触发 update 监听，恢复后要手动开始 5s 快照。
-              noteDirty(tab.id);
-            } catch (err) {
-              console.warn("[recovery] 恢复失败", item.docId, err);
-            }
+        const known = new Set(useAppStore.getState().docs.map((doc) => doc.id));
+        for (const item of recoveries) {
+          if (!known.has(item.docId) && libraryLoaded) {
+            await ipc.dropRecovery(item.docId).catch(() => undefined);
           }
         }
       } catch (err) {
@@ -157,6 +126,39 @@ export default function App() {
 
     return () => {
       cancelled = true;
+    };
+  }, []);
+
+  // 外部修改检测：窗口重新聚焦或切换标签时比对文件 mtime。
+  useEffect(() => {
+    let checking = false;
+    const check = async () => {
+      if (checking) return;
+      const state = useAppStore.getState();
+      const tab = state.tabs.find((item) => item.id === state.activeTabId);
+      if (!tab?.path || tab.diskMtime === undefined) return;
+      checking = true;
+      try {
+        const mtime = await ipc.fileMtime(tab.path);
+        if (mtime === null) {
+          useAppStore.getState().updateTab(tab.id, { missing: true, external: false });
+        } else if (mtime !== tab.diskMtime) {
+          useAppStore.getState().updateTab(tab.id, { external: true, missing: false });
+        }
+      } catch {
+        // 读不到文件信息就不打扰。
+      } finally {
+        checking = false;
+      }
+    };
+    const onFocus = () => void check();
+    window.addEventListener("focus", onFocus);
+    const unsubscribe = useAppStore.subscribe((state, prev) => {
+      if (prev.activeTabId !== state.activeTabId) void check();
+    });
+    return () => {
+      window.removeEventListener("focus", onFocus);
+      unsubscribe();
     };
   }, []);
 
@@ -196,6 +198,7 @@ export default function App() {
     writePref("editorBackground", editorBackground);
     writePref("globalShortcut", globalShortcut);
     writePref("closeToTray", closeToTray);
+    writePref("livePreview", livePreview);
   }, [
     sidebarWidth,
     sidebarCollapsed,
@@ -206,6 +209,7 @@ export default function App() {
     editorBackground,
     globalShortcut,
     closeToTray,
+    livePreview,
   ]);
 
   useEffect(() => {
@@ -228,9 +232,18 @@ export default function App() {
       const key = event.key.toLowerCase();
 
       switch (key) {
+        // 无 Shift 的 Ctrl+/ 留给编辑器做注释切换，这里只抢 Shift 组合。
         case "/":
+          if (!event.shiftKey) break;
           event.preventDefault();
           toggleAi();
+          break;
+        case "v":
+          if (!event.shiftKey) break;
+          // 只有 Markdown 有实时渲染态，其它文件不响应（保留纯文本粘贴）。
+          if (!/\.(md|markdown)$/i.test(activeTab()?.filename ?? "")) break;
+          event.preventDefault();
+          toggleLivePreview();
           break;
         case ",":
           event.preventDefault();
@@ -239,7 +252,7 @@ export default function App() {
           break;
         case "n":
           event.preventDefault();
-          addTab({ title: "未命名" });
+          addTempTab();
           break;
         case "p":
           event.preventDefault();
@@ -293,7 +306,7 @@ export default function App() {
 
     window.addEventListener("keydown", onKeyDown);
     return () => window.removeEventListener("keydown", onKeyDown);
-  }, [toggleAi, addTab, cycleTab, openDialog]);
+  }, [toggleAi, cycleTab, openDialog, toggleLivePreview]);
 
   // 关闭窗口：默认收进托盘；设置为退出时逐个确认脏标签。
   useEffect(() => {
@@ -389,7 +402,7 @@ export default function App() {
             void openPaths(event.payload);
           }),
           listen("app://new-doc", () => {
-            useAppStore.getState().addTab({ title: "未命名" });
+            addTempTab();
           }),
           listen("app://quit", async () => {
             const ok = await confirmExit();

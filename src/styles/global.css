@@ -9,12 +9,17 @@
   --border: #e5e7eb;
   --border-2: #d8dbe0;
 
+  /* Markdown 代码块：要和正文底色拉开距离 */
+  --code-bg: #eef2f7;
+  --code-border: #dbe2ec;
+
   --fg: #22262c;
   --fg-2: #5b6472;
   --fg-3: #8b93a1;
 
   --accent: #2f6ae0;
   --accent-soft: rgba(47, 106, 224, 0.09);
+  --selection-bg: rgba(47, 106, 224, 0.2);
   --hover: rgba(20, 26, 38, 0.05);
   --mod: #c98a12;
   --active-line: rgba(127, 127, 127, 0.055);
@@ -48,6 +53,8 @@
     --tabbar: #191b1f;
     --border: #2a2d33;
     --border-2: #34383f;
+    --code-bg: #2a2f38;
+    --code-border: #3f4653;
 
     --fg: #d9dde3;
     --fg-2: #9aa3b2;
@@ -55,6 +62,7 @@
 
     --accent: #7aa2ff;
     --accent-soft: rgba(122, 162, 255, 0.13);
+    --selection-bg: rgba(122, 162, 255, 0.26);
     --hover: rgba(255, 255, 255, 0.06);
     --mod: #e0b357;
     --active-line: rgba(255, 255, 255, 0.05);
@@ -81,6 +89,8 @@
   --tabbar: #191b1f;
   --border: #2a2d33;
   --border-2: #34383f;
+  --code-bg: #2a2f38;
+  --code-border: #3f4653;
 
   --fg: #d9dde3;
   --fg-2: #9aa3b2;
@@ -88,6 +98,7 @@
 
   --accent: #7aa2ff;
   --accent-soft: rgba(122, 162, 255, 0.13);
+  --selection-bg: rgba(122, 162, 255, 0.26);
   --hover: rgba(255, 255, 255, 0.06);
   --mod: #e0b357;
   --active-line: rgba(255, 255, 255, 0.05);

@@ -57,3 +57,22 @@ export function stopRecovery(tabId: string): void {
     timers.delete(tabId);
   }
 }
+
+/** 关闭标签/退出前立刻落一份快照，避免最后 5s 的修改丢失。 */
+export async function flushRecoveryNow(tabId: string): Promise<void> {
+  const tab = eligible(tabId);
+  if (!tab) return;
+  try {
+    await ipc.saveRecovery({
+      docId: tab.docId!,
+      title: tab.title,
+      content: readTabContent(tabId),
+      encoding: tab.encoding,
+      hasBom: tab.hasBom,
+      lineEnding: tab.lineEnding,
+    });
+  } catch (err) {
+    console.warn("[recovery] 关闭前快照失败", err);
+  }
+  stopRecovery(tabId);
+}
