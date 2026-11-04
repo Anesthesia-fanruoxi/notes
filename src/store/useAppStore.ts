@@ -53,7 +53,7 @@ export interface TabMeta {
   languageLabel?: string;
 }
 
-export const FONT_SIZES = [12, 13, 14, 15, 16, 18, 20, 22];
+export const FONT_SIZES = Array.from({ length: 25 }, (_, index) => index + 8);
 
 export interface TabInit {
   title: string;
@@ -151,7 +151,6 @@ interface AppState {
   toggleAi: () => void;
 
   cycleTheme: () => void;
-  cycleFontSize: () => void;
   setThemeMode: (mode: ThemeMode) => void;
   setFontSize: (size: number) => void;
   setLineHeight: (lineHeight: number) => void;
@@ -200,7 +199,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   aiOpen: false,
 
   themeMode: readPref<ThemeMode>("themeMode", "system"),
-  fontSize: clamp(readPref("fontSize", 13), 12, 22),
+  fontSize: clamp(readPref("fontSize", 13), 8, 32),
   lineHeight: readPref("lineHeight", 1.7),
   editorBackground: readPref("editorBackground", "theme"),
 
@@ -314,15 +313,8 @@ export const useAppStore = create<AppState>((set, get) => ({
     set({ themeMode: order[(current + 1) % order.length] });
   },
 
-  cycleFontSize: () => {
-    const current = get().fontSize;
-    const index = FONT_SIZES.findIndex((size) => size >= current);
-    const next = index === -1 ? FONT_SIZES[0] : FONT_SIZES[(index + 1) % FONT_SIZES.length];
-    set({ fontSize: next });
-  },
-
   setThemeMode: (themeMode) => set({ themeMode }),
-  setFontSize: (size) => set({ fontSize: clamp(size, 12, 22) }),
+  setFontSize: (size) => set({ fontSize: clamp(size, 8, 32) }),
   setLineHeight: (lineHeight) =>
     set({ lineHeight: Math.max(1.2, Math.min(2.2, Math.round(lineHeight * 100) / 100)) }),
   setEditorBackground: (editorBackground) => set({ editorBackground }),

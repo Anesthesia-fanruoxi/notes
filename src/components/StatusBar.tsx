@@ -1,7 +1,8 @@
 import clsx from "clsx";
+import { useEffect, useRef, useState } from "react";
 
 import { commonLanguages, PLAIN_TEXT } from "../editor/languages";
-import { useAppStore } from "../store/useAppStore";
+import { FONT_SIZES, useAppStore } from "../store/useAppStore";
 import styles from "../styles/app.module.css";
 
 const THEME_LABEL = {
@@ -9,6 +10,8 @@ const THEME_LABEL = {
   light: "浅色",
   dark: "深色",
 } as const;
+
+const FONT_MENU_WIDTH = 188;
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -31,7 +34,7 @@ export default function StatusBar() {
   const livePreview = useAppStore((s) => s.livePreview);
   const toggleLivePreview = useAppStore((s) => s.toggleLivePreview);
   const cycleTheme = useAppStore((s) => s.cycleTheme);
-  const cycleFontSize = useAppStore((s) => s.cycleFontSize);
+  const setFontSize = useAppStore((s) => s.setFontSize);
   const setLanguageOverride = useAppStore((s) => s.setLanguageOverride);
   const openDialog = useAppStore((s) => s.openDialog);
 
@@ -43,6 +46,61 @@ export default function StatusBar() {
     ? categories.find((category) => category.id === activeDoc.categoryId)?.name ?? "未分类"
     : "临时";
   const isMarkdown = /\.(md|markdown)$/i.test(activeTab?.filename ?? "");
+
+  const [fontMenu, setFontMenu] = useState<{
+    left: number;
+    bottom: number;
+    maxHeight: number;
+  } | null>(null);
+  const fontButtonRef = useRef<HTMLButtonElement>(null);
+  const fontMenuRef = useRef<HTMLDivElement>(null);
+  const selectedFontRef = useRef<HTMLButtonElement>(null);
+
+  useEffect(() => {
+    if (!fontMenu) return;
+    const close = () => setFontMenu(null);
+    const onPointerDown = (event: PointerEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (fontMenuRef.current?.contains(target)) return;
+      if (fontButtonRef.current?.contains(target)) return;
+      close();
+    };
+    const onKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      close();
+    };
+    const onResize = () => close();
+    window.addEventListener("pointerdown", onPointerDown, true);
+    window.addEventListener("keydown", onKeyDown, true);
+    window.addEventListener("resize", onResize);
+    return () => {
+      window.removeEventListener("pointerdown", onPointerDown, true);
+      window.removeEventListener("keydown", onKeyDown, true);
+      window.removeEventListener("resize", onResize);
+    };
+  }, [fontMenu]);
+
+  useEffect(() => {
+    if (fontMenu) selectedFontRef.current?.scrollIntoView({ block: "nearest" });
+  }, [fontMenu]);
+
+  const toggleFontMenu = () => {
+    if (fontMenu) {
+      setFontMenu(null);
+      return;
+    }
+    const button = fontButtonRef.current;
+    if (!button) return;
+    const rect = button.getBoundingClientRect();
+    setFontMenu({
+      left: Math.max(8, Math.min(rect.left, window.innerWidth - FONT_MENU_WIDTH - 8)),
+      bottom: window.innerHeight - rect.top + 6,
+      maxHeight: Math.max(160, Math.min(340, rect.top - 16)),
+    });
+  };
 
   return (
     <footer className={styles.status}>
@@ -115,10 +173,11 @@ export default function StatusBar() {
       <span className={styles.sep} />
 
       <button
+        ref={fontButtonRef}
         type="button"
         className={clsx(styles.statusItem, styles.statusClickable, styles.mono)}
-        title="字号（P4 移入设置页）"
-        onClick={cycleFontSize}
+        title="字号（8–32px）"
+        onClick={toggleFontMenu}
       >
         {fontSize}px
       </button>
@@ -156,6 +215,43 @@ export default function StatusBar() {
       >
         ⚙
       </button>
+
+      {fontMenu && (
+        <div
+          ref={fontMenuRef}
+          className={styles.fontMenu}
+          style={{
+            left: fontMenu.left,
+            bottom: fontMenu.bottom,
+            maxHeight: fontMenu.maxHeight,
+          }}
+          role="listbox"
+          aria-label="字号"
+          onPointerDown={(event) => event.stopPropagation()}
+        >
+          {FONT_SIZES.map((size) => {
+            const selected = size === fontSize;
+            return (
+              <button
+                key={size}
+                ref={selected ? selectedFontRef : undefined}
+                type="button"
+                role="option"
+                aria-selected={selected}
+                className={clsx(styles.fontOption, selected && styles.fontOptionActive)}
+                onClick={() => {
+                  setFontSize(size);
+                  setFontMenu(null);
+                }}
+              >
+                <span className={clsx(styles.fontDot, !selected && styles.fontDotHidden)} />
+                <span className={styles.fontValue}>{size}px</span>
+                {size === 13 && <span className={styles.fontDefault}>默认</span>}
+              </button>
+            );
+          })}
+        </div>
+      )}
     </footer>
   );
 }

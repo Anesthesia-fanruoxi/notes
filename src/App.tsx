@@ -1,4 +1,5 @@
-import { useEffect, type PointerEvent as ReactPointerEvent } from "react";
+import clsx from "clsx";
+import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import ChatPanel from "./components/ChatPanel";
 import CloseConfirmDialog from "./components/CloseConfirmDialog";
@@ -52,12 +53,49 @@ export default function App() {
   const globalShortcut = useAppStore((s) => s.globalShortcut);
   const closeToTray = useAppStore((s) => s.closeToTray);
 
+  const [boot, setBoot] = useState({ progress: 4, status: "正在启动…", done: false });
+  const [bootVisible, setBootVisible] = useState(true);
+
   // 启动：拉库、恢复临时文档、处理命令行文件。
   useEffect(() => {
     let cancelled = false;
+    let finished = false;
+    let safetyTimer = 0;
+    let fadeTimer = 0;
+    let hideTimer = 0;
+    const bootStarted = performance.now();
+
+    const updateBoot = (progress: number, status: string) => {
+      if (cancelled || finished) return;
+      setBoot((prev) =>
+        prev.done
+          ? prev
+          : { ...prev, progress: Math.max(prev.progress, progress), status },
+      );
+    };
+
+    const completeBoot = (status: string) => {
+      if (cancelled || finished) return;
+      finished = true;
+      window.clearTimeout(safetyTimer);
+      setBoot((prev) => (prev.done ? prev : { ...prev, progress: 100, status }));
+      window.clearTimeout(fadeTimer);
+      const wait = Math.max(0, 650 - (performance.now() - bootStarted));
+      fadeTimer = window.setTimeout(() => {
+        if (cancelled) return;
+        setBoot((prev) => (prev.done ? prev : { ...prev, done: true }));
+        hideTimer = window.setTimeout(() => {
+          if (!cancelled) setBootVisible(false);
+        }, 380);
+      }, wait);
+    };
+
+    // IPC 异常或磁盘很慢时，别让启动页一直挂着。
+    safetyTimer = window.setTimeout(() => completeBoot("正在进入界面…"), 15000);
 
     (async () => {
       let libraryLoaded = false;
+      updateBoot(12, "正在加载文档库…");
       try {
         await refreshLibrary();
         libraryLoaded = true;
@@ -65,13 +103,16 @@ export default function App() {
         console.warn("[library] 初始化失败", err);
       }
 
+      updateBoot(30, "正在恢复临时文档…");
       try {
         const scratches = await ipc.listScratch();
         useAppStore.getState().setScratchDocs(scratches);
+        const restoreItems = scratches.slice(0, 10);
         let restored = 0;
-        for (const item of scratches.slice(0, 10)) {
+        for (let index = 0; index < restoreItems.length; index += 1) {
+          const item = restoreItems[index];
           const doc = await ipc.readScratch(item.tabId);
-          const name = item.path ? item.path.split(/[\\/]/).pop() ?? item.title : item.title;
+          const name = item.path ? item.path.split(/[\/]/).pop() ?? item.title : item.title;
           useAppStore.getState().addRestoredTab(item.tabId, {
             title: item.title,
             kind: "temp",
@@ -85,6 +126,12 @@ export default function App() {
           });
           putTabState(item.tabId, createEditorState(doc.content, handleEditorUpdate));
           restored += 1;
+          updateBoot(
+            34 + Math.round(((index + 1) / Math.max(1, restoreItems.length)) * 30),
+            restoreItems.length > 1
+              ? `正在恢复临时文档 ${index + 1}/${restoreItems.length}…`
+              : "正在恢复临时文档…",
+          );
         }
 
         // 恢复出来的内容接管界面时，把启动时那个空白标签收掉。
@@ -99,6 +146,7 @@ export default function App() {
         console.warn("[scratch] 恢复失败", err);
       }
 
+      updateBoot(68, "正在检查草稿…");
       // 常驻文档的草稿快照不再在启动时弹窗：打开文档时自动接着改。
       // 只清理索引里已经不存在的手残留快照。
       try {
@@ -113,6 +161,7 @@ export default function App() {
         console.warn("[recovery] 扫描失败", err);
       }
 
+      updateBoot(82, "正在打开文件…");
       try {
         const args = await ipc.takeCliArgs();
         const files = args.filter((arg) => arg && !arg.startsWith("-"));
@@ -122,10 +171,15 @@ export default function App() {
       } catch {
         // 命令行参数不是必需能力，失败不打扰用户。
       }
+
+      completeBoot("准备就绪");
     })();
 
     return () => {
       cancelled = true;
+      window.clearTimeout(safetyTimer);
+      window.clearTimeout(fadeTimer);
+      window.clearTimeout(hideTimer);
     };
   }, []);
 
@@ -510,6 +564,20 @@ export default function App() {
       {dialog === "settings" && <SettingsDialog />}
       {dialog === "quickopen" && <QuickOpen />}
       <CloseConfirmDialog />
+
+      {bootVisible && (
+        <div className={clsx(styles.bootSplash, boot.done && styles.bootSplashDone)}>
+          <div className={styles.bootLogo}>N</div>
+          <div className={styles.bootName}>Note</div>
+          <div className={styles.bootBar}>
+            <div className={styles.bootBarFill} style={{ width: `${boot.progress}%` }} />
+          </div>
+          <div className={styles.bootMeta}>
+            <span className={styles.bootStatus}>{boot.status}</span>
+            <span className={styles.bootPercent}>{Math.round(boot.progress)}%</span>
+          </div>
+        </div>
+      )}
     </div>
   );
 }

@@ -629,8 +629,8 @@ export default function SettingsDialog() {
                     <input
                       className={styles.slider}
                       type="range"
-                      min={12}
-                      max={22}
+                      min={8}
+                      max={32}
                       step={1}
                       value={fontSize}
                       onChange={(event) => setFontSize(Number(event.target.value))}
