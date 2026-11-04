@@ -77,7 +77,7 @@
 - 编码探测与保留（UTF-8 / UTF-8 BOM / GBK / GB18030 / UTF-16LE），换行符 CRLF/LF 保留
 - 大文件自动降级
 - 查找替换（当前文件，支持正则）
-- Markdown 预览：编辑区内只读渲染（隐藏 Markdown 标记），`Ctrl+Shift+V` 切换预览/源码
+- Markdown 预览：代码模式左右分栏（左源码实时编辑、右只读渲染），`Ctrl+Shift+V` 切换分栏/整页预览
 - 浅色/深色主题，跟随系统
 
 **文档库**
@@ -172,7 +172,7 @@ Rust 侧 `read_text_file` 的职责：
 | `Ctrl+P` | 快速打开（在文档库 + 临时区按标题模糊搜索） |
 | `Ctrl+,` | 设置 |
 | `Ctrl+/` | 注释 / 取消注释 |
-| `Ctrl+Shift+V` | Markdown 预览 / 源码切换（只读预览，仅 md 生效） |
+| `Ctrl+Shift+V` | Markdown 代码分栏 / 整页预览切换（只读预览，仅 md 生效） |
 | `Ctrl+Shift+/` | 开关 AI 侧栏 |
 | `Esc` | 关闭当前浮层/面板 |
 
@@ -282,7 +282,7 @@ Rust 侧 `read_text_file` 的职责：
 - 两套主题（浅/深），CSS 变量驱动，`prefers-color-scheme` 跟随系统 + 手动三态（跟随/浅/深）。
 - CodeMirror 主题要与页面主题一致，用 `EditorView.theme()` + `HighlightStyle`，不要用第三方主题包。
 - 等宽字体栈：`"JetBrains Mono", "Cascadia Code", "Sarasa Mono SC", Consolas, monospace`，中文字体回退 `"Microsoft YaHei UI"`。
-- 字号、行高在设置里可调（12–22px），立即生效并持久化。
+- 字号（8–32px，默认 13，状态栏可选）、行高在设置里可调，立即生效并持久化。
 - 布局：
 
 ```
@@ -471,7 +471,7 @@ src-tauri/
 17. AI 替换选中后 `Ctrl+Z` 一次回到原文；版本列表有 `before-ai` 快照且能还原。
 18. 断网状态下点 AI，2s 内出现明确错误提示，界面不卡死。
 19. 资源管理器右键 `.md`「用本应用打开」→ 启动并作为临时文档；已运行时复用窗口。
-20. `Ctrl+Alt+N` 任意应用前台时唤起窗口；`Ctrl+Shift+V` 在 Markdown 预览/源码间切换；`Ctrl+Shift+/` 开关 AI 侧栏。
+20. `Ctrl+Alt+N` 任意应用前台时唤起窗口；`Ctrl+Shift+V` 在 Markdown 代码分栏/整页预览间切换；`Ctrl+Shift+/` 开关 AI 侧栏。
 21. `npm run tauri build` 产出安装包 < 15MB。
 
 ---

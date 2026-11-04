@@ -15,8 +15,8 @@ import {
 import { copyText } from "../lib/clipboard";
 
 /**
- * Markdown 预览：不是独立面板，而是在编辑区里把 Markdown 标记隐藏掉，
- * 渲染成只读视图；编辑统一走源码模式。
+ * Markdown 预览：在独立的只读视图里把 Markdown 标记隐藏掉，渲染成阅读视图；
+ * 编辑统一在左侧源码视图完成。
  *
  * 代码块围栏渲染成头部/底部，表格渲染成 HTML 表格，只保留复制等阅读操作。
  *
@@ -662,27 +662,6 @@ function build(state: EditorState): LivePreviewValue {
   }
 
   return { decorations: builder.finish(), blocks };
-}
-
-/** 从源码态切回渲染态时，把落在围栏行上的光标挪进正文。 */
-export function placeCursorOutsideFence(view: EditorView): void {
-  const live = view.state.field(livePreviewExtension, false);
-  if (!live || live.blocks.length === 0) return;
-  const { doc, selection } = view.state;
-  if (!selection.main.empty) return;
-
-  const line = doc.lineAt(selection.main.head);
-  for (const block of live.blocks) {
-    if (!block.hasBody) continue;
-    if (block.open === line.number) {
-      view.dispatch({ selection: EditorSelection.cursor(doc.line(block.bodyFrom).from) });
-      return;
-    }
-    if (block.close === line.number) {
-      view.dispatch({ selection: EditorSelection.cursor(doc.line(block.bodyTo).to) });
-      return;
-    }
-  }
 }
 
 /**

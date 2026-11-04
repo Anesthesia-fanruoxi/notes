@@ -623,11 +623,38 @@
   position: relative;
 }
 
-.editorHost {
+.editorSplit {
   flex: 1;
   min-width: 0;
   min-height: 0;
+  display: flex;
+}
+
+.editorHost {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
   overflow: hidden;
+}
+
+.hostHidden {
+  display: none;
+}
+
+/* 右侧只读预览：代码模式与源码各占一半，预览模式独占整宽。 */
+.previewHost {
+  flex: 1 1 0;
+  min-width: 0;
+  min-height: 0;
+  overflow: hidden;
+}
+
+.previewSplit {
+  border-left: 1px solid var(--border);
+}
+
+.previewHost :global(.cm-editor) {
+  height: 100%;
 }
 
 .previewPane {

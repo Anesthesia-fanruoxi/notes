@@ -1,4 +1,4 @@
-import { Compartment, EditorState, type Extension } from "@codemirror/state";
+import { Compartment, EditorState, type Extension, type Text } from "@codemirror/state";
 import {
   EditorView,
   drawSelection,
@@ -15,17 +15,11 @@ import { bracketMatching, indentOnInput, type LanguageSupport } from "@codemirro
 
 import { openFind, searchExtension } from "./search";
 import { editorTheme } from "./theme";
-import {
-  placeCursorOutsideFence,
-  livePreviewExtension,
-  livePreviewGuard,
-} from "./livePreview";
+import { livePreviewExtension, livePreviewGuard } from "./livePreview";
 import type { EditorTier } from "./tiers";
 
 /** 语言扩展槽：切换语言时只重配这一格，不重建整个 state。 */
 export const languageCompartment = new Compartment();
-/** 预览开关：源码 ↔ 只读渲染。 */
-export const livePreviewCompartment = new Compartment();
 
 function commonExtensions(): Extension[] {
   return [
@@ -42,19 +36,17 @@ function commonExtensions(): Extension[] {
   ];
 }
 
-/** 预览态的编辑器标记：渲染时隐藏行号槽。 */
+/** 预览视图的编辑器标记：渲染时隐藏行号槽。 */
 const liveAttributes = EditorView.editorAttributes.of({ class: "cm-md-live" });
 
-/** 预览格的内容：只读 + 渲染装饰 + 围栏守卫 + 标记类，开关时整格重配。 */
-function livePreviewConfig(enabled: boolean): Extension[] {
-  return enabled
-    ? [
-        EditorState.readOnly.of(true),
-        livePreviewExtension,
-        livePreviewGuard,
-        liveAttributes,
-      ]
-    : [];
+/** 预览视图的扩展：只读 + 渲染装饰 + 围栏守卫 + 标记类。 */
+function previewConfig(): Extension[] {
+  return [
+    EditorState.readOnly.of(true),
+    livePreviewExtension,
+    livePreviewGuard,
+    liveAttributes,
+  ];
 }
 
 /**
@@ -63,9 +55,9 @@ function livePreviewConfig(enabled: boolean): Extension[] {
  * lite: 去掉高亮与折叠，保留行号与搜索
  * plain: 只留基础编辑与查找
  */
-function tierExtensions(tier: EditorTier, livePreview: boolean): Extension[] {
+function tierExtensions(tier: EditorTier): Extension[] {
   if (tier === "plain") {
-    return [...commonExtensions(), livePreviewCompartment.of([])];
+    return commonExtensions();
   }
 
   const structure: Extension[] = [
@@ -76,7 +68,7 @@ function tierExtensions(tier: EditorTier, livePreview: boolean): Extension[] {
   ];
 
   if (tier === "lite") {
-    return [...structure, ...commonExtensions(), livePreviewCompartment.of([])];
+    return [...structure, ...commonExtensions()];
   }
 
   return [
@@ -86,7 +78,6 @@ function tierExtensions(tier: EditorTier, livePreview: boolean): Extension[] {
     bracketMatching(),
     ...commonExtensions(),
     languageCompartment.of([]),
-    livePreviewCompartment.of(livePreviewConfig(livePreview)),
   ];
 }
 
@@ -94,9 +85,8 @@ export function createEditorState(
   doc = "",
   onUpdate?: (update: ViewUpdate) => void,
   tier: EditorTier = "full",
-  livePreview = false,
 ): EditorState {
-  const extensions = tierExtensions(tier, livePreview);
+  const extensions = tierExtensions(tier);
   if (onUpdate) {
     extensions.push(EditorView.updateListener.of(onUpdate));
   }
@@ -119,15 +109,23 @@ export function applyLanguage(view: EditorView, support: LanguageSupport | null)
   view.dispatch({ effects: languageCompartment.reconfigure(support ?? []) });
 }
 
-/** 源码 ↔ 预览，不重建 state，保留撤销栈。 */
-export function setLivePreview(view: EditorView, enabled: boolean): void {
-  const wasLive = view.state.field(livePreviewExtension, false) !== undefined;
-  // 重配装饰会改变行高和块布局，但没动文档/选区，drawSelection 的选区层
-  // 不会因此重绘。把同一份 selection 带进重配事务，强制触发 selectionSet，
-  // 让选区层按新布局重画，否则切回预览态时高亮会停在源码态的位置。
-  view.dispatch({
-    effects: livePreviewCompartment.reconfigure(livePreviewConfig(enabled)),
-    selection: view.state.selection,
+/**
+ * Markdown 预览：独立的只读视图，复用源码的渲染装饰。
+ * 正文由 EditorPane 从左侧源码视图同步，撤销栈不在这里维护。
+ */
+export function createPreviewState(doc: string | Text = ""): EditorState {
+  return EditorState.create({
+    doc,
+    extensions: [
+      previewConfig(),
+      drawSelection(),
+      searchExtension,
+      editorTheme,
+      languageCompartment.of([]),
+    ],
   });
-  if (enabled && !wasLive) placeCursorOutsideFence(view);
+}
+
+export function createPreviewView(parent: HTMLElement, doc: string | Text = ""): EditorView {
+  return new EditorView({ state: createPreviewState(doc), parent });
 }

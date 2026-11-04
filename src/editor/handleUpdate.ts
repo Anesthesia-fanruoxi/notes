@@ -1,6 +1,7 @@
 import type { ViewUpdate } from "@codemirror/view";
 
 import { useAppStore } from "../store/useAppStore";
+import { syncPreviewChanges } from "./activeView";
 import { scheduleScratch } from "./autosave";
 import { noteDirty } from "./recovery";
 
@@ -28,5 +29,6 @@ export function handleEditorUpdate(update: ViewUpdate): void {
     }
     store.setDocSize(state.doc.length);
     store.bumpDocVersion();
+    syncPreviewChanges(update);
   }
 }

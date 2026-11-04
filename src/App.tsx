@@ -11,7 +11,7 @@ import SettingsDialog from "./components/SettingsDialog";
 import StatusBar from "./components/StatusBar";
 import TabBar from "./components/TabBar";
 import VersionDialog from "./components/VersionDialog";
-import { getActiveEditorView } from "./editor/activeView";
+import { getActiveEditorView, getPreviewView } from "./editor/activeView";
 import { createEditorState } from "./editor/createEditor";
 import { handleEditorUpdate } from "./editor/handleUpdate";
 import { openFind } from "./editor/search";
@@ -342,7 +342,8 @@ export default function App() {
           break;
         case "f":
         case "h": {
-          const view = getActiveEditorView();
+          const preview = getPreviewView();
+          const view = preview?.hasFocus ? preview : getActiveEditorView();
           if (view) {
             event.preventDefault();
             openFind(view);

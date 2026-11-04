@@ -1,6 +1,6 @@
 import { open } from "@tauri-apps/plugin-dialog";
 
-import { getActiveEditorView } from "../editor/activeView";
+import { getActiveEditorView, syncPreviewDoc } from "../editor/activeView";
 import { createEditorState } from "../editor/createEditor";
 import { handleEditorUpdate } from "../editor/handleUpdate";
 import { cancelScratch } from "../editor/autosave";
@@ -252,7 +252,10 @@ export async function reloadTabFromDisk(tabId: string): Promise<void> {
   );
   putTabState(tabId, next);
   const view = getActiveEditorView();
-  if (view && state.activeTabId === tabId) view.setState(next);
+  if (view && state.activeTabId === tabId) {
+    view.setState(next);
+    syncPreviewDoc(next.doc);
+  }
 
   cancelScratch(tabId);
   await ipc.dropScratch(tabId).catch(() => undefined);
