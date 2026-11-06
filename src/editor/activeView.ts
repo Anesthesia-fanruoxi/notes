@@ -28,6 +28,8 @@ export function getActiveViewTabId(): string | null {
 
 /** Markdown 预览是独立的只读视图，只登记，不参与编辑与正文读取。 */
 let previewView: EditorView | null = null;
+/** 当前标签是否是 Markdown；非 md 时停止同步，但保留最后一份内容做收起动画。 */
+let previewEnabled = false;
 
 export function setPreviewView(view: EditorView | null): void {
   previewView = view;
@@ -37,10 +39,14 @@ export function getPreviewView(): EditorView | null {
   return previewView;
 }
 
+export function setPreviewEnabled(enabled: boolean): void {
+  previewEnabled = enabled;
+}
+
 /** 源码视图的每笔修改原样应用到预览，保留预览的滚动位置。 */
 export function syncPreviewChanges(update: ViewUpdate): void {
   const view = previewView;
-  if (!view) return;
+  if (!view || !previewEnabled) return;
   if (!view.state.doc.eq(update.startState.doc)) {
     syncPreviewDoc(update.state.doc);
     return;
@@ -51,6 +57,6 @@ export function syncPreviewChanges(update: ViewUpdate): void {
 /** 切标签或整篇替换时，把预览整篇对齐到给定正文。 */
 export function syncPreviewDoc(doc: Text): void {
   const view = previewView;
-  if (!view || view.state.doc.eq(doc)) return;
+  if (!view || !previewEnabled || view.state.doc.eq(doc)) return;
   view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: doc } });
 }

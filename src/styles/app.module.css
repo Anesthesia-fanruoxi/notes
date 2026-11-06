@@ -1061,11 +1061,36 @@
   min-height: 0;
   overflow: hidden;
   border-left: 1px solid transparent;
-  transition: border-color 1s ease;
+  opacity: 1;
+  visibility: visible;
+  pointer-events: auto;
+  transition:
+    flex-grow 1s cubic-bezier(0.4, 0, 0.2, 1),
+    flex-basis 1s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 1s ease,
+    visibility 0s linear 0s,
+    border-color 1s ease;
 }
 
 .previewSplit {
   border-left-color: var(--border);
+}
+
+/* 非 md：预览栏收起，源码栏顺势铺满；保留 DOM 让最后一份内容淡出。 */
+.previewHostClosed {
+  flex-grow: 0;
+  flex-basis: 0px;
+  width: 0;
+  opacity: 0;
+  visibility: hidden;
+  pointer-events: none;
+  border-left-color: transparent;
+  transition:
+    flex-grow 1s cubic-bezier(0.4, 0, 0.2, 1),
+    flex-basis 1s cubic-bezier(0.4, 0, 0.2, 1),
+    opacity 1s ease,
+    visibility 0s linear 1s,
+    border-color 1s ease;
 }
 
 .previewHost :global(.cm-editor) {

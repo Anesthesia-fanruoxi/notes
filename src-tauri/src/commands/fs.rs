@@ -25,6 +25,23 @@ pub fn write_text_file(
     )
 }
 
+/// 同目录内改后缀：目标已存在时拒绝，绝不覆盖。
+#[tauri::command]
+pub fn rename_file(from: String, to: String) -> Result<(), String> {
+    let from_path = PathBuf::from(&from);
+    let to_path = PathBuf::from(&to);
+    if !from_path.is_file() {
+        return Err("原文件不存在".into());
+    }
+    if from_path.parent() != to_path.parent() {
+        return Err("只能在同目录内修改后缀".into());
+    }
+    if to_path.exists() {
+        return Err("目标文件已存在".into());
+    }
+    std::fs::rename(&from_path, &to_path).map_err(|e| format!("重命名失败：{e}"))
+}
+
 /// 文件最后修改时间（毫秒），文件不存在时返回 None。
 #[tauri::command]
 pub fn file_mtime(path: String) -> Result<Option<u64>, String> {

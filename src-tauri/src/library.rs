@@ -622,6 +622,62 @@ pub fn rename_doc(
     Ok(clone)
 }
 
+/// 手动切换语言后保存时同步库内正文后缀；标题尾部带旧后缀时一起换掉。
+pub fn change_doc_extension(
+    paths: &WorkspacePaths,
+    index: &mut LibraryIndex,
+    doc_id: &str,
+    extension: &str,
+) -> Result<DocMeta, String> {
+    let ext = normalize_extension(extension);
+    let position = index
+        .docs
+        .iter()
+        .position(|doc| doc.id == doc_id)
+        .ok_or("文档不存在")?;
+    let doc = index.docs[position].clone();
+    if doc.extension == ext {
+        return Ok(doc);
+    }
+
+    let old_path = doc_path(paths, &doc);
+    let new_path = paths.docs.join(format!("{doc_id}.{ext}"));
+    if !old_path.is_file() {
+        return Err("正文文件不存在".into());
+    }
+    if new_path.exists() {
+        return Err(format!("同名 .{ext} 文件已存在"));
+    }
+    fs::rename(&old_path, &new_path).map_err(|e| format!("修改后缀失败：{e}"))?;
+
+    let old_ext = doc.extension.clone();
+    let old_title = doc.title.clone();
+    let old_suffix = format!(".{old_ext}");
+    let new_title = if old_title
+        .to_lowercase()
+        .ends_with(&old_suffix.to_lowercase())
+    {
+        let base = &old_title[..old_title.len() - old_suffix.len()];
+        unique_title(index, &format!("{base}.{ext}"), Some(doc_id)).0
+    } else {
+        old_title.clone()
+    };
+
+    index.docs[position].extension = ext.clone();
+    index.docs[position].title = new_title;
+    index.docs[position].updated_at = now_ms();
+    let updated = index.docs[position].clone();
+
+    if let Err(err) = save_index(paths, index) {
+        index.docs[position].extension = old_ext;
+        index.docs[position].title = old_title;
+        let _ = fs::rename(&new_path, &old_path);
+        return Err(err);
+    }
+
+    Ok(updated)
+}
+
 pub fn move_doc(
     paths: &WorkspacePaths,
     index: &mut LibraryIndex,
@@ -1553,6 +1609,55 @@ mod tests {
 
         let restored = read_index_at(&paths.library).unwrap();
         assert_eq!(restored.docs.len(), 1);
+
+        let _ = fs::remove_dir_all(&paths.app_data);
+    }
+
+    #[test]
+    fn changing_extension_moves_file_and_syncs_title_suffix() {
+        let paths = temp_paths();
+        let mut index = empty_index();
+        let doc = create_doc(
+            &paths,
+            &mut index,
+            "测试一下.txt",
+            UNCATEGORIZED_ID,
+            "txt",
+            "内容",
+            "UTF-8",
+            false,
+            "LF",
+        )
+        .unwrap();
+
+        let updated = change_doc_extension(&paths, &mut index, &doc.id, "md").unwrap();
+        assert_eq!(updated.extension, "md");
+        assert_eq!(updated.title, "测试一下.md");
+        assert!(!paths.docs.join(format!("{}.txt", doc.id)).exists());
+        assert!(paths.docs.join(format!("{}.md", doc.id)).exists());
+
+        let reloaded: LibraryIndex =
+            serde_json::from_str(&fs::read_to_string(&paths.index).unwrap()).unwrap();
+        assert_eq!(reloaded.docs[0].extension, "md");
+        assert_eq!(reloaded.docs[0].title, "测试一下.md");
+
+        // 标题本身不带后缀时不要动标题，只换磁盘后缀。
+        let plain = create_doc(
+            &paths,
+            &mut index,
+            "笔记",
+            UNCATEGORIZED_ID,
+            "txt",
+            "内容",
+            "UTF-8",
+            false,
+            "LF",
+        )
+        .unwrap();
+        let plain_updated =
+            change_doc_extension(&paths, &mut index, &plain.id, "md").unwrap();
+        assert_eq!(plain_updated.title, "笔记");
+        assert_eq!(plain_updated.extension, "md");
 
         let _ = fs::remove_dir_all(&paths.app_data);
     }

@@ -28,6 +28,7 @@ import {
   saveActiveTab,
 } from "./lib/documents";
 import { getFontPreset } from "./lib/fonts";
+import { isMarkdownTab } from "./lib/format";
 import { applyGlobalShortcut } from "./lib/globalShortcut";
 import { ipc } from "./lib/ipc";
 import { writePref } from "./lib/prefs";
@@ -359,14 +360,15 @@ export default function App() {
           event.preventDefault();
           toggleAi();
           break;
-        case "v":
+        case "v": {
           if (!event.shiftKey) break;
           // 只有 Markdown 有预览态，其它文件不响应（保留纯文本粘贴）。
-          if (!/\.(md|markdown)$/i.test(activeTab()?.filename ?? "")) break;
-          if (activeTab()?.readOnlyFile) break;
+          const tab = activeTab();
+          if (!isMarkdownTab(tab) || tab?.readOnlyFile) break;
           event.preventDefault();
           toggleLivePreview();
           break;
+        }
         case ",":
           event.preventDefault();
           useAppStore.getState().setSettingsSection("general");

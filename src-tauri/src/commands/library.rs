@@ -73,6 +73,16 @@ pub fn rename_doc(app: AppHandle, doc_id: String, title: String) -> Result<DocMe
 }
 
 #[tauri::command]
+pub fn change_doc_extension(
+    app: AppHandle,
+    doc_id: String,
+    extension: String,
+) -> Result<DocMeta, String> {
+    let (paths, mut index) = library::load_index(&app)?;
+    library::change_doc_extension(&paths, &mut index, &doc_id, &extension)
+}
+
+#[tauri::command]
 pub fn move_doc(app: AppHandle, doc_id: String, category_id: String) -> Result<(), String> {
     let (paths, mut index) = library::load_index(&app)?;
     library::move_doc(&paths, &mut index, &doc_id, &category_id)

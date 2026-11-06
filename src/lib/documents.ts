@@ -10,6 +10,7 @@ import { dropTabState, putTabState } from "../editor/tabStates";
 import { LARGE_FILE_LIMIT, tierFor } from "../editor/tiers";
 import { useAppStore, type TabMeta } from "../store/useAppStore";
 import { forgetTempAiState } from "./ai";
+import { displayFileName, extensionForLanguage } from "./format";
 import { ipc } from "./ipc";
 import { openScratchRecord, refreshScratch } from "./scratch";
 
@@ -147,7 +148,7 @@ export async function openLibraryDoc(docId: string): Promise<void> {
     title: meta?.title ?? "未命名",
     kind: "library",
     docId,
-    filename: meta ? `${meta.title}.${meta.extension}` : undefined,
+    filename: meta ? displayFileName(meta.title, meta.extension) : undefined,
     encoding: doc.encoding,
     hasBom: doc.hasBom,
     lineEnding: doc.lineEnding,
@@ -163,8 +164,25 @@ export async function openLibraryDoc(docId: string): Promise<void> {
 }
 
 export async function saveLibraryTab(tabId: string): Promise<void> {
-  const tab = useAppStore.getState().tabs.find((item) => item.id === tabId);
+  const state = useAppStore.getState();
+  const tab = state.tabs.find((item) => item.id === tabId);
   if (!tab?.docId || tab.readOnlyFile) return;
+
+  // 手动切换语言后保存：先同步库内正文后缀，再写正文。
+  const docMeta = state.docs.find((doc) => doc.id === tab.docId);
+  const targetExt = extensionForLanguage(tab);
+  const currentExt = (
+    docMeta?.extension ??
+    (tab.filename ? extensionOf(tab.filename) : "")
+  ).toLowerCase();
+  if (targetExt && targetExt !== currentExt) {
+    const updated = await ipc.changeDocExtension(tab.docId, targetExt);
+    useAppStore.getState().updateTab(tabId, {
+      filename: displayFileName(updated.title, updated.extension),
+      title: updated.title,
+      languageOverride: undefined,
+    });
+  }
 
   const content = readTabContent(tabId);
   const meta = await ipc.writeDoc(
@@ -209,30 +227,62 @@ export async function saveTempFile(tabId: string): Promise<void> {
   if (!tab?.path || tab.readOnlyFile) return;
 
   const content = readTabContent(tabId);
+  // 先落内容，再改后缀：改后缀失败时至少正文已经保存。
   await ipc.writeTextFile(tab.path, content, tab.encoding, tab.hasBom, tab.lineEnding);
+
+  let path = tab.path;
+  let filename = tab.filename ?? baseName(path);
+  let title = tab.title;
+  let renamed = false;
+
+  const targetExt = extensionForLanguage(tab);
+  const currentExt = extensionOf(path).toLowerCase();
+  if (targetExt && targetExt !== currentExt) {
+    const separator = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
+    const dir = separator >= 0 ? path.slice(0, separator + 1) : "";
+    const nextPath = `${dir}${stemName(path)}.${targetExt}`;
+    if (nextPath !== path) {
+      try {
+        await ipc.renameFile(path, nextPath);
+        path = nextPath;
+        filename = baseName(path);
+        title = filename;
+        renamed = true;
+      } catch (err) {
+        window.alert(
+          `${err instanceof Error ? err.message : "修改后缀失败"}，内容已保存到原文件。`,
+        );
+      }
+    }
+  }
+
   cancelScratch(tabId);
+  const mtime = await ipc.fileMtime(path).catch(() => null);
+  useAppStore.getState().updateTab(tabId, {
+    path,
+    filename,
+    title,
+    dirty: false,
+    external: false,
+    missing: false,
+    diskMtime: mtime ?? undefined,
+    ...(renamed ? { languageOverride: undefined } : {}),
+  });
+
   // 保存后副本与文件一致，继续留一份快照，重开应用仍是这一版。
   void ipc
     .saveScratch({
       tabId,
-      title: tab.title,
+      title,
       content,
       encoding: tab.encoding,
       hasBom: tab.hasBom,
       lineEnding: tab.lineEnding,
       source: tab.scratchSource ?? "file",
-      path: tab.path,
+      path,
     })
     .then(refreshScratch)
     .catch((err) => console.warn("[scratch] 保存后同步失败", err));
-
-  const mtime = await ipc.fileMtime(tab.path).catch(() => null);
-  useAppStore.getState().updateTab(tabId, {
-    dirty: false,
-    external: false,
-    missing: false,
-    diskMtime: mtime ?? undefined,
-  });
 }
 
 /** 磁盘文件被删掉后，用编辑器里的副本把它写回去。 */
@@ -333,7 +383,8 @@ export async function saveTempToLibrary(
   if (!tab || tab.readOnlyFile) return;
 
   const content = readTabContent(tabId);
-  const extension = tab.filename ? extensionOf(tab.filename) : "txt";
+  const extension =
+    extensionForLanguage(tab) ?? (tab.filename ? extensionOf(tab.filename) : "txt");
   const meta = await ipc.createDoc({
     title,
     categoryId,
@@ -348,6 +399,13 @@ export async function saveTempToLibrary(
     kind: "library",
     docId: meta.id,
     title: meta.title,
+    filename: displayFileName(meta.title, meta.extension),
+    languageOverride: undefined,
+    path: undefined,
+    scratchSource: undefined,
+    diskMtime: undefined,
+    external: false,
+    missing: false,
     dirty: false,
     sizeBytes: meta.sizeBytes,
   });

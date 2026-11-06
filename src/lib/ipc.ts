@@ -70,6 +70,7 @@ export const ipc = {
   takeCliArgs: () => call<string[]>("take_cli_args"),
   fileMtime: (path: string) => call<number | null>("file_mtime", { path }),
   fileInfo: (path: string) => call<FileInfo>("file_info", { path }),
+  renameFile: (from: string, to: string) => call<void>("rename_file", { from, to }),
 
   /* 大文件只读模式 */
   largeFileOpen: (path: string) => call<LargeFileMeta>("large_file_open", { path }),
@@ -96,6 +97,8 @@ export const ipc = {
     lineEnding: LineEnding,
   ) => call<DocMeta>("write_doc", { docId, content, encoding, hasBom, lineEnding }),
   renameDoc: (docId: string, title: string) => call<DocMeta>("rename_doc", { docId, title }),
+  changeDocExtension: (docId: string, extension: string) =>
+    call<DocMeta>("change_doc_extension", { docId, extension }),
   moveDoc: (docId: string, categoryId: string) => call<void>("move_doc", { docId, categoryId }),
   deleteDoc: (docId: string) => call<DeleteOutcome>("delete_doc", { docId }),
   setAiReadable: (docId: string, readable: boolean) =>

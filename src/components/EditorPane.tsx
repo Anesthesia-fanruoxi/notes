@@ -13,6 +13,7 @@ import MarkdownOutline from "./MarkdownOutline";
 import {
   markViewTab,
   setActiveEditorView,
+  setPreviewEnabled,
   setPreviewView,
   syncPreviewDoc,
 } from "../editor/activeView";
@@ -35,6 +36,7 @@ import { livePreviewExtension, type TableBlock } from "../editor/livePreview";
 import { scanHeadings, type Heading } from "../editor/outline";
 import { getTabState, putTabState } from "../editor/tabStates";
 import { tierFor, tierHint } from "../editor/tiers";
+import { isMarkdownTab } from "../lib/format";
 import {
   ignoreExternalChange,
   reloadTabFromDisk,
@@ -73,7 +75,7 @@ export default function EditorPane() {
   const livePreview = useAppStore((s) => s.livePreview);
   const outlineWidth = useAppStore((s) => s.outlineWidth);
   const docVersion = useAppStore((s) => s.docVersion);
-  const isMarkdown = /\.(md|markdown)$/i.test(filename ?? "");
+  const isMarkdown = isMarkdownTab(activeTab);
   const isReadOnly = activeTab?.readOnlyFile === true;
   // 只有完整档的 Markdown 才值得再挂一个预览视图；大文件降级时保留源码。
   const hasPreview = isMarkdown && tier === "full";
@@ -84,6 +86,8 @@ export default function EditorPane() {
   const [collapsedHeadings, setCollapsedHeadings] = useState<ReadonlySet<number>>(
     () => new Set(),
   );
+  /** 非 md 后延迟卸载目录，先让收起动画走完。 */
+  const [previewMounted, setPreviewMounted] = useState(hasPreview);
 
   useEffect(() => {
     const host = hostRef.current;
@@ -115,10 +119,29 @@ export default function EditorPane() {
 
     return () => {
       setPreviewView(null);
+      setPreviewEnabled(false);
       view.destroy();
       previewViewRef.current = null;
     };
   }, []);
+
+  // 预览挂载/收起：非 md 时保留 DOM 约 1.1s，让收起动画走完再卸载目录。
+  useEffect(() => {
+    if (hasPreview) {
+      setPreviewMounted(true);
+      return;
+    }
+    const timer = window.setTimeout(() => setPreviewMounted(false), 1100);
+    return () => window.clearTimeout(timer);
+  }, [hasPreview]);
+
+  // 只有 Markdown 标签参与预览同步；非 md 时保留最后一份内容用于收起动画。
+  useEffect(() => {
+    setPreviewEnabled(hasPreview);
+    if (!hasPreview || !activeTabId) return;
+    const state = getTabState(activeTabId);
+    if (state) syncPreviewDoc(state.doc);
+  }, [hasPreview, activeTabId]);
 
   // 切标签：先回存旧 state，再换成目标标签的 state。
   useEffect(() => {
@@ -141,25 +164,26 @@ export default function EditorPane() {
     if (tab?.readOnlyFile) {
       prevTabIdRef.current = null;
       markViewTab(null);
+      setPreviewEnabled(false);
       store.setCursor(1, 1);
       store.setSelectionChars(0);
       store.setDocSize(tab.sizeBytes);
       return;
     }
 
+    const previewForTab = tier === "full" && isMarkdownTab(tab);
+    setPreviewEnabled(previewForTab);
+
     const state =
       getTabState(activeTabId) ?? createEditorState("", handleEditorUpdate, tier);
     putTabState(activeTabId, state);
     view.setState(state);
-    syncPreviewDoc(state.doc);
+    if (previewForTab) syncPreviewDoc(state.doc);
     markViewTab(activeTabId);
 
     prevTabIdRef.current = activeTabId;
 
-    const previewOnly =
-      tier === "full" &&
-      store.livePreview &&
-      /\.(md|markdown)$/i.test(tab?.filename ?? "");
+    const previewOnly = previewForTab && store.livePreview;
     if (previewOnly) previewViewRef.current?.focus();
     else view.focus();
 
@@ -175,9 +199,12 @@ export default function EditorPane() {
   // 预览目录：标题行号与预览文档一致，编辑/切标签时重扫。
   useEffect(() => {
     if (!hasPreview) {
-      setOutline([]);
-      setActiveHeading(null);
-      return;
+      // 收起动画期间保留旧目录，动画结束再清空。
+      const timer = window.setTimeout(() => {
+        setOutline([]);
+        setActiveHeading(null);
+      }, 1100);
+      return () => window.clearTimeout(timer);
     }
     const view = viewRef.current;
     if (!view) return;
@@ -653,7 +680,7 @@ export default function EditorPane() {
         className={styles.editorSplit}
         style={isReadOnly ? { display: "none" } : undefined}
       >
-        {hasPreview && (
+        {previewMounted && (
           <div
             className={clsx(styles.outlineHost, showOutline && styles.outlineHostOpen)}
             style={{ "--outline-width": `${outlineWidth}px` } as CSSProperties}
@@ -668,7 +695,7 @@ export default function EditorPane() {
             />
           </div>
         )}
-        {hasPreview && (
+        {previewMounted && (
           <div
             className={clsx(
               styles.outlineSplitter,
@@ -696,8 +723,9 @@ export default function EditorPane() {
           className={clsx(
             styles.previewHost,
             hasPreview && !livePreview && styles.previewSplit,
+            !hasPreview && styles.previewHostClosed,
           )}
-          hidden={!hasPreview}
+          aria-hidden={!hasPreview}
         />
       </div>
       {isReadOnly && activeTab?.path && (

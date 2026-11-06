@@ -2,6 +2,7 @@ import clsx from "clsx";
 import { useEffect, useRef, useState } from "react";
 
 import { commonLanguages, PLAIN_TEXT } from "../editor/languages";
+import { isMarkdownTab } from "../lib/format";
 import { FONT_SIZES, useAppStore } from "../store/useAppStore";
 import styles from "../styles/app.module.css";
 import FontFamilySwitcher from "./FontFamilySwitcher";
@@ -39,7 +40,7 @@ export default function StatusBar() {
   const categoryName = activeDoc
     ? categories.find((category) => category.id === activeDoc.categoryId)?.name ?? "未分类"
     : "临时";
-  const isMarkdown = /\.(md|markdown)$/i.test(activeTab?.filename ?? "");
+  const isMarkdown = isMarkdownTab(activeTab);
   const isReadOnly = activeTab?.readOnlyFile === true;
 
   const [fontMenu, setFontMenu] = useState<{
@@ -158,7 +159,11 @@ export default function StatusBar() {
         className={clsx(styles.statusItem, styles.statusSelect)}
         value={languageValue}
         disabled={isReadOnly}
-        title={isReadOnly ? "大文件只读模式不支持切换语言" : "语法高亮语言（仅当前标签）"}
+        title={
+          isReadOnly
+            ? "大文件只读模式不支持切换语言"
+            : "语言：影响高亮，保存时同步文件后缀（仅当前标签）"
+        }
         onChange={(event) => {
           if (!activeTab) return;
           const value = event.target.value;
@@ -248,7 +253,7 @@ export default function StatusBar() {
             ? "大文件以只读方式打开，不支持预览"
             : isMarkdown
               ? "Ctrl+Shift+V 切换预览 / 源码"
-              : "仅 Markdown 文档支持预览"
+              : "仅 Markdown 文档或语言支持预览"
         }
         onClick={toggleLivePreview}
       >
