@@ -1,0 +1,68 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          # - platform: windows-latest
+          #   args: ''
+          - platform: macos-latest
+            args: '--target aarch64-apple-darwin'
+    runs-on: ${{ matrix.platform }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Check tag matches app version
+        shell: bash
+        run: |
+          tag="${GITHUB_REF_NAME#v}"
+          version=$(node -p "require('./src-tauri/tauri.conf.json').version")
+          if [ "$tag" != "$version" ]; then
+            echo "Tag $GITHUB_REF_NAME 与 src-tauri/tauri.conf.json 的版本 $version 不一致" >&2
+            exit 1
+          fi
+
+      - uses: dtolnay/rust-toolchain@stable
+
+      - name: Add Apple Silicon target
+        if: runner.os == 'macOS'
+        run: rustup target add aarch64-apple-darwin
+
+      - uses: swatinem/rust-cache@v2
+        with:
+          workspaces: './src-tauri -> target'
+
+      - name: Install frontend dependencies
+        run: npm ci
+
+      - name: Build and upload release assets
+        uses: tauri-apps/tauri-action@v0
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        with:
+          tagName: ${{ github.ref_name }}
+          releaseName: 'Note v__VERSION__'
+          releaseBody: |
+            ## 下载
+
+            - macOS Apple Silicon（M 系列）：`Note_*_aarch64.dmg`
+
+            macOS 版本未签名/公证，首次打开若被系统拦截，请在「系统设置 → 隐私与安全性」中允许，或右键选择「打开」。
+          releaseDraft: true
+          prerelease: false
+          args: ${{ matrix.args }}
