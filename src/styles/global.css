@@ -118,6 +118,144 @@
   color-scheme: light;
 }
 
+/* ---------- 命名主题：在明/暗基础色上覆盖 ---------- */
+:root[data-tone="green"] {
+  --bg: #e6efe3;
+  --win: #f7fbf4;
+  --pane: #f3f8f0;
+  --side: #dce8da;
+  --tabbar: #dce8da;
+  --border: #c9d8c5;
+  --border-2: #b7cbb2;
+  --code-bg: #e2eddd;
+  --code-border: #c9dcc3;
+  --fg: #26322a;
+  --fg-2: #55655a;
+  --fg-3: #7e8d82;
+  --accent: #3d7a57;
+  --accent-soft: rgba(61, 122, 87, 0.12);
+  --selection-bg: rgba(61, 122, 87, 0.22);
+  --hover: rgba(32, 52, 37, 0.05);
+  --active-line: rgba(32, 52, 37, 0.05);
+}
+
+:root[data-tone="sepia"] {
+  --bg: #f0eadf;
+  --win: #fbf7ef;
+  --pane: #f7f2e7;
+  --side: #e9e1d2;
+  --tabbar: #e9e1d2;
+  --border: #dcd2c1;
+  --border-2: #cdc0ad;
+  --code-bg: #eee4d4;
+  --code-border: #d8cbb7;
+  --fg: #3a342a;
+  --fg-2: #6b6153;
+  --fg-3: #938979;
+  --accent: #a56b23;
+  --accent-soft: rgba(165, 107, 35, 0.12);
+  --selection-bg: rgba(165, 107, 35, 0.22);
+  --hover: rgba(58, 52, 42, 0.05);
+  --active-line: rgba(58, 52, 42, 0.05);
+}
+
+:root[data-tone="mist"] {
+  --bg: #e8eef5;
+  --win: #f8fbfe;
+  --pane: #f2f6fb;
+  --side: #dfe8f1;
+  --tabbar: #dfe8f1;
+  --border: #cfdae7;
+  --border-2: #bfcede;
+  --code-bg: #e6edf6;
+  --code-border: #cfdbea;
+  --fg: #26313c;
+  --fg-2: #5a6877;
+  --fg-3: #8694a4;
+  --accent: #3b6fa8;
+  --accent-soft: rgba(59, 111, 168, 0.12);
+  --selection-bg: rgba(59, 111, 168, 0.22);
+  --hover: rgba(38, 49, 60, 0.05);
+  --active-line: rgba(38, 49, 60, 0.05);
+}
+
+:root[data-tone="rose"] {
+  --bg: #f3e9e6;
+  --win: #fdf8f6;
+  --pane: #f9f2ef;
+  --side: #ebded9;
+  --tabbar: #ebded9;
+  --border: #dccbc5;
+  --border-2: #ccb8b1;
+  --code-bg: #f0e4e0;
+  --code-border: #dcc8c2;
+  --fg: #3a2f2c;
+  --fg-2: #6b5b56;
+  --fg-3: #94847e;
+  --accent: #a65f6b;
+  --accent-soft: rgba(166, 95, 107, 0.12);
+  --selection-bg: rgba(166, 95, 107, 0.22);
+  --hover: rgba(58, 47, 44, 0.05);
+  --active-line: rgba(58, 47, 44, 0.05);
+}
+
+:root[data-tone="charcoal"] {
+  --bg: #1a1c1f;
+  --win: #25282c;
+  --pane: #202327;
+  --side: #1c1f22;
+  --tabbar: #1c1f22;
+  --border: #30343a;
+  --border-2: #3c4148;
+  --code-bg: #2b2f35;
+  --code-border: #3e444c;
+  --fg: #d7dbe0;
+  --fg-2: #9fa7b1;
+  --fg-3: #737c87;
+  --accent: #8fb2ff;
+  --accent-soft: rgba(143, 178, 255, 0.13);
+  --selection-bg: rgba(143, 178, 255, 0.24);
+  --hover: rgba(255, 255, 255, 0.06);
+  --active-line: rgba(255, 255, 255, 0.05);
+}
+
+:root[data-tone="midnight"] {
+  --bg: #0f1722;
+  --win: #1a2432;
+  --pane: #151f2b;
+  --side: #121a24;
+  --tabbar: #121a24;
+  --border: #253140;
+  --border-2: #33445a;
+  --code-bg: #1e2a3a;
+  --code-border: #30415a;
+  --fg: #d6e0eb;
+  --fg-2: #97a6b8;
+  --fg-3: #6c7d92;
+  --accent: #7fb0ff;
+  --accent-soft: rgba(127, 176, 255, 0.13);
+  --selection-bg: rgba(127, 176, 255, 0.24);
+  --hover: rgba(255, 255, 255, 0.055);
+  --active-line: rgba(255, 255, 255, 0.045);
+}
+
+/* 手动切换主题时让颜色平滑过渡；只作用于切换瞬间。 */
+html.theme-transition,
+html.theme-transition * {
+  transition:
+    background-color 240ms ease,
+    color 240ms ease,
+    border-color 240ms ease,
+    box-shadow 240ms ease !important;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html.theme-transition,
+  html.theme-transition * {
+    transition: none !important;
+  }
+}
+
 * {
   box-sizing: border-box;
 }

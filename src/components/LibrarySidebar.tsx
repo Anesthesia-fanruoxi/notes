@@ -5,6 +5,11 @@ import { open } from "@tauri-apps/plugin-dialog";
 import { dropTabState } from "../editor/tabStates";
 import { flattenCategories } from "../lib/categories";
 import { openLibraryDoc, refreshLibrary } from "../lib/documents";
+import {
+  extensionColor,
+  extensionLabel,
+  suffixOfName,
+} from "../lib/fileTypes";
 import { ipc } from "../lib/ipc";
 import { addTempTab, openScratchRecord, purgeScratchRecord } from "../lib/scratch";
 import type { Category, DocMeta, ScratchDoc } from "../lib/types";
@@ -48,6 +53,11 @@ export default function LibrarySidebar() {
   const visibleDocs = trimmed
     ? docs.filter((doc) => doc.title.toLowerCase().includes(trimmed))
     : docs;
+  const orderedScratchDocs = [...scratchDocs].sort((a, b) => {
+    const aDirty = tabs.some((tab) => tab.id === a.tabId && tab.dirty) ? 1 : 0;
+    const bDirty = tabs.some((tab) => tab.id === b.tabId && tab.dirty) ? 1 : 0;
+    return bDirty - aDirty || b.updatedAt - a.updatedAt;
+  });
 
   const ensureExpanded = (categoryId: string) => {
     if (useAppStore.getState().collapsed[categoryId]) toggleCollapsed(categoryId);
@@ -58,7 +68,7 @@ export default function LibrarySidebar() {
     const meta = await ipc.createDoc({
       title: "未命名",
       categoryId,
-      extension: "md",
+      extension: "txt",
       content: "",
       encoding: "UTF-8",
       hasBom: false,
@@ -213,13 +223,17 @@ export default function LibrarySidebar() {
     const doc = docs.find((item) => item.id === docId);
     if (!doc) return null;
     const tab = tabs.find((item) => item.docId === doc.id);
+    const ext = doc.extension || null;
+    const titleHasExt = !!ext && doc.title.toLowerCase().endsWith(`.${ext}`);
+    const fullName = ext && !titleHasExt ? `${doc.title}.${ext}` : doc.title;
+    const color = extensionColor(ext);
     return (
       <button
         key={doc.id}
         type="button"
         className={clsx(styles.doc, tab?.id === activeTabId && styles.docActive)}
         style={{ paddingLeft: 24 + depth * 14 }}
-        title={doc.title}
+        title={fullName}
         draggable
         onDragStart={() => setDragDocId(doc.id)}
         onDragEnd={() => setDragDocId(null)}
@@ -229,17 +243,26 @@ export default function LibrarySidebar() {
           openDocMenu(doc, event.clientX, event.clientY);
         }}
       >
-        <span className={styles.docName}>{doc.title}</span>
+        <span className={styles.docDotSlot}>
+          {tab?.dirty && <span className={styles.mdot} title="已修改" />}
+        </span>
+        <span className={styles.docName}>{fullName}</span>
         {!doc.aiReadable && (
           <span className={styles.docLock} title="已禁止 AI 读取">
             禁读
           </span>
         )}
-        {tab?.dirty && (
-          <span className={styles.docFlag}>
-            <span className={styles.mdot} title="已修改" />
-          </span>
-        )}
+        <span
+          className={styles.docExt}
+          style={{
+            color,
+            borderColor: `${color}66`,
+            background: `${color}14`,
+          }}
+          title={ext ? `文件类型：.${ext}` : "无扩展名"}
+        >
+          {extensionLabel(ext)}
+        </span>
       </button>
     );
   };
@@ -259,6 +282,7 @@ export default function LibrarySidebar() {
         <div
           role="button"
           tabIndex={0}
+          aria-expanded={!isCollapsed}
           className={clsx(styles.catRow, dropTarget === category.id && styles.catRowDrop)}
           style={{ paddingLeft: 8 + depth * 14 }}
           onClick={() => toggleCollapsed(category.id)}
@@ -285,7 +309,12 @@ export default function LibrarySidebar() {
           }}
           title={trimmed ? "拖动文档到这里可移动分类" : category.name}
         >
-          <span className={styles.catChev}>{isCollapsed ? "▸" : "▾"}</span>
+          <span
+            className={clsx(styles.catPm, !isCollapsed && styles.catPmOpen)}
+            aria-hidden="true"
+          >
+            {isCollapsed ? "+" : "−"}
+          </span>
           <span className={styles.catName}>{category.name}</span>
           <span className={styles.catCount}>{ownDocs.length}</span>
           <button
@@ -407,8 +436,12 @@ export default function LibrarySidebar() {
           </button>
         </div>
 
-        {scratchDocs.map((item) => {
+        {orderedScratchDocs.map((item) => {
           const openTab = tabs.find((tab) => tab.id === item.tabId);
+          const ext = item.path ? suffixOfName(item.path) : null;
+          const titleHasExt = !!ext && item.title.toLowerCase().endsWith(`.${ext}`);
+          const fullName = ext && !titleHasExt ? `${item.title}.${ext}` : item.title;
+          const color = extensionColor(ext);
           return (
             <div
               key={item.tabId}
@@ -420,9 +453,21 @@ export default function LibrarySidebar() {
                 onClick={() => void openScratchRecord(item)}
                 title={item.path ?? item.title}
               >
-                <span className={styles.docName}>{item.title}</span>
-                {item.source === "file" && <span className={styles.tempBadge}>文件</span>}
-                {openTab?.dirty && <span className={styles.mdot} title="已修改" />}
+                <span className={styles.docDotSlot}>
+                  {openTab?.dirty && <span className={styles.mdot} title="已修改" />}
+                </span>
+                <span className={styles.docName}>{fullName}</span>
+                <span
+                  className={styles.docExt}
+                  style={{
+                    color,
+                    borderColor: `${color}66`,
+                    background: `${color}14`,
+                  }}
+                  title={ext ? `文件类型：.${ext}` : "无扩展名"}
+                >
+                  {extensionLabel(ext)}
+                </span>
               </button>
               <button
                 type="button"

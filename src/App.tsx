@@ -1,21 +1,23 @@
 import clsx from "clsx";
-import { useEffect, useState, type PointerEvent as ReactPointerEvent } from "react";
+import { useEffect, useRef, useState, type PointerEvent as ReactPointerEvent } from "react";
 
 import ChatPanel from "./components/ChatPanel";
-import CloseConfirmDialog from "./components/CloseConfirmDialog";
 import EditorPane from "./components/EditorPane";
+import FontZoomHud from "./components/FontZoomHud";
 import LibrarySidebar from "./components/LibrarySidebar";
 import QuickOpen from "./components/QuickOpen";
 import SaveToLibraryDialog from "./components/SaveToLibraryDialog";
 import SettingsDialog from "./components/SettingsDialog";
 import StatusBar from "./components/StatusBar";
 import TabBar from "./components/TabBar";
+import TooltipLayer from "./components/TooltipLayer";
 import VersionDialog from "./components/VersionDialog";
 import { getActiveEditorView, getPreviewView } from "./editor/activeView";
 import { createEditorState } from "./editor/createEditor";
 import { handleEditorUpdate } from "./editor/handleUpdate";
 import { openFind } from "./editor/search";
 import { putTabState } from "./editor/tabStates";
+import { LARGE_FILE_LIMIT } from "./editor/tiers";
 import {
   activeTab,
   exportTab,
@@ -25,11 +27,13 @@ import {
   refreshLibrary,
   saveActiveTab,
 } from "./lib/documents";
+import { getFontPreset } from "./lib/fonts";
 import { applyGlobalShortcut } from "./lib/globalShortcut";
 import { ipc } from "./lib/ipc";
 import { writePref } from "./lib/prefs";
+import { applyTheme } from "./lib/themes";
 import { addTempTab } from "./lib/scratch";
-import { answerClose, closeActiveTab, confirmExit } from "./lib/tabActions";
+import { closeActiveTab, flushBeforeExit } from "./lib/tabActions";
 import { useAppStore } from "./store/useAppStore";
 import styles from "./styles/app.module.css";
 
@@ -46,7 +50,9 @@ export default function App() {
   const sidebarCollapsed = useAppStore((s) => s.sidebarCollapsed);
   const toggleSidebar = useAppStore((s) => s.toggleSidebar);
   const aiWidth = useAppStore((s) => s.aiWidth);
+  const outlineWidth = useAppStore((s) => s.outlineWidth);
   const themeMode = useAppStore((s) => s.themeMode);
+  const fontPreset = useAppStore((s) => s.fontPreset);
   const fontSize = useAppStore((s) => s.fontSize);
   const lineHeight = useAppStore((s) => s.lineHeight);
   const editorBackground = useAppStore((s) => s.editorBackground);
@@ -55,6 +61,25 @@ export default function App() {
 
   const [boot, setBoot] = useState({ progress: 4, status: "正在启动…", done: false });
   const [bootVisible, setBootVisible] = useState(true);
+  const [settingsMounted, setSettingsMounted] = useState(false);
+  const [settingsClosing, setSettingsClosing] = useState(false);
+  const themeReadyRef = useRef(false);
+
+  // 设置弹窗保留到收起动画结束再卸载。
+  useEffect(() => {
+    if (dialog === "settings") {
+      setSettingsMounted(true);
+      setSettingsClosing(false);
+      return;
+    }
+    if (!settingsMounted) return;
+    setSettingsClosing(true);
+    const timer = window.setTimeout(() => {
+      setSettingsMounted(false);
+      setSettingsClosing(false);
+    }, 180);
+    return () => window.clearTimeout(timer);
+  }, [dialog, settingsMounted]);
 
   // 启动：拉库、恢复临时文档、处理命令行文件。
   useEffect(() => {
@@ -111,8 +136,31 @@ export default function App() {
         let restored = 0;
         for (let index = 0; index < restoreItems.length; index += 1) {
           const item = restoreItems[index];
-          const doc = await ipc.readScratch(item.tabId);
           const name = item.path ? item.path.split(/[\/]/).pop() ?? item.title : item.title;
+          const info = item.path ? await ipc.fileInfo(item.path).catch(() => null) : null;
+          if (info && info.sizeBytes > LARGE_FILE_LIMIT) {
+            // 旧 scratch 可能是整篇大文件副本：只恢复只读标签，不读副本正文。
+            useAppStore.getState().addRestoredTab(item.tabId, {
+              title: item.title,
+              kind: "temp",
+              filename: name,
+              scratchSource: item.source,
+              path: item.path ?? undefined,
+              encoding: "UTF-8",
+              sizeBytes: info.sizeBytes,
+              readOnlyFile: true,
+            });
+            restored += 1;
+            updateBoot(
+              34 + Math.round(((index + 1) / Math.max(1, restoreItems.length)) * 30),
+              restoreItems.length > 1
+                ? `正在恢复临时文档 ${index + 1}/${restoreItems.length}…`
+                : "正在恢复临时文档…",
+            );
+            continue;
+          }
+
+          const doc = await ipc.readScratch(item.tabId);
           useAppStore.getState().addRestoredTab(item.tabId, {
             title: item.title,
             kind: "temp",
@@ -216,14 +264,10 @@ export default function App() {
     };
   }, []);
 
-  // 主题：system 跟随系统，手动锁定。
+  // 主题：命名主题在明/暗基色之上覆盖调色板，system 跟随系统。
   useEffect(() => {
     const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const apply = () => {
-      const mode = useAppStore.getState().themeMode;
-      const dark = mode === "dark" || (mode === "system" && media.matches);
-      document.documentElement.dataset.theme = dark ? "dark" : "light";
-    };
+    const apply = () => applyTheme(useAppStore.getState().themeMode, media.matches);
 
     apply();
     media.addEventListener("change", apply);
@@ -231,10 +275,33 @@ export default function App() {
   }, []);
 
   useEffect(() => {
-    const media = window.matchMedia("(prefers-color-scheme: dark)");
-    const dark = themeMode === "dark" || (themeMode === "system" && media.matches);
-    document.documentElement.dataset.theme = dark ? "dark" : "light";
+    const root = document.documentElement;
+    const first = !themeReadyRef.current;
+    themeReadyRef.current = true;
+
+    if (!first) {
+      root.classList.add("theme-transition");
+      // 先让旧颜色生效一帧，再换变量，颜色过渡才会触发。
+      void root.offsetWidth;
+    }
+
+    applyTheme(themeMode, window.matchMedia("(prefers-color-scheme: dark)").matches);
+
+    if (first) return;
+    const timer = window.setTimeout(() => root.classList.remove("theme-transition"), 260);
+    return () => {
+      window.clearTimeout(timer);
+      root.classList.remove("theme-transition");
+    };
   }, [themeMode]);
+
+  // 字体预设同时覆盖界面与编辑器；只改变量，不重建 EditorState。
+  useEffect(() => {
+    const preset = getFontPreset(fontPreset);
+    const root = document.documentElement;
+    root.style.setProperty("--sans", preset.sans);
+    root.style.setProperty("--mono", preset.mono);
+  }, [fontPreset]);
 
   // 只改 CSS 变量，不重建 EditorState。
   useEffect(() => {
@@ -246,7 +313,9 @@ export default function App() {
     writePref("sidebarWidth", sidebarWidth);
     writePref("sidebarCollapsed", sidebarCollapsed);
     writePref("aiWidth", aiWidth);
+    writePref("outlineWidth", outlineWidth);
     writePref("themeMode", themeMode);
+    writePref("fontPreset", fontPreset);
     writePref("fontSize", fontSize);
     writePref("lineHeight", lineHeight);
     writePref("editorBackground", editorBackground);
@@ -257,7 +326,9 @@ export default function App() {
     sidebarWidth,
     sidebarCollapsed,
     aiWidth,
+    outlineWidth,
     themeMode,
+    fontPreset,
     fontSize,
     lineHeight,
     editorBackground,
@@ -273,15 +344,11 @@ export default function App() {
       if (!(event.ctrlKey || event.metaKey)) {
         if (event.key === "Escape") {
           const state = useAppStore.getState();
-          if (state.closePrompt) answerClose("cancel");
-          else if (state.dialog !== "none") state.openDialog("none");
+          if (state.dialog !== "none") state.openDialog("none");
           else if (state.aiOpen) state.toggleAi();
         }
         return;
       }
-
-      // 等用户处理未保存确认时，不要让快捷键在弹层后面改状态。
-      if (useAppStore.getState().closePrompt) return;
 
       const key = event.key.toLowerCase();
 
@@ -296,6 +363,7 @@ export default function App() {
           if (!event.shiftKey) break;
           // 只有 Markdown 有预览态，其它文件不响应（保留纯文本粘贴）。
           if (!/\.(md|markdown)$/i.test(activeTab()?.filename ?? "")) break;
+          if (activeTab()?.readOnlyFile) break;
           event.preventDefault();
           toggleLivePreview();
           break;
@@ -326,6 +394,8 @@ export default function App() {
                 if (!dir) return;
                 const name = await exportTab(tab.id, dir);
                 if (name) window.alert(`已导出：${name}`);
+              } else if (tab?.readOnlyFile) {
+                window.alert("大文件以只读方式打开，不能保存为文档。");
               } else {
                 openDialog("save");
               }
@@ -363,11 +433,11 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [toggleAi, cycleTab, openDialog, toggleLivePreview]);
 
-  // 关闭窗口：默认收进托盘；设置为退出时逐个确认脏标签。
+  // 关闭窗口：默认收进托盘；设置为退出时落快照后直接退出，不弹确认。
   useEffect(() => {
     let disposed = false;
     let unlisten: (() => void) | undefined;
-    let confirming = false;
+    let flushing = false;
     let exiting = false;
 
     void (async () => {
@@ -376,7 +446,7 @@ export default function App() {
         const win = getCurrentWindow();
         const stop = await win.onCloseRequested(async (event) => {
           if (exiting) return;
-          if (confirming) {
+          if (flushing) {
             event.preventDefault();
             return;
           }
@@ -391,10 +461,9 @@ export default function App() {
           if (!dirty) return;
 
           event.preventDefault();
-          confirming = true;
-          const ok = await confirmExit();
-          confirming = false;
-          if (!ok) return;
+          flushing = true;
+          await flushBeforeExit();
+          flushing = false;
 
           exiting = true;
           await ipc.quitApp();
@@ -460,8 +529,8 @@ export default function App() {
             addTempTab();
           }),
           listen("app://quit", async () => {
-            const ok = await confirmExit();
-            if (ok) await ipc.quitApp();
+            await flushBeforeExit();
+            await ipc.quitApp();
           }),
         ]);
         if (disposed) unlisteners.forEach((fn) => fn());
@@ -509,8 +578,26 @@ export default function App() {
   return (
     <div className={styles.app}>
       <div className={styles.body}>
-        {sidebarCollapsed ? (
-          <div className={styles.sidebarRail}>
+        <div
+          className={styles.sidebarHost}
+          style={{ width: sidebarCollapsed ? 34 : sidebarWidth }}
+        >
+          <div
+            className={clsx(
+              styles.sidebarContent,
+              sidebarCollapsed && styles.sidebarContentHidden,
+            )}
+            aria-hidden={sidebarCollapsed}
+          >
+            <LibrarySidebar />
+          </div>
+          <div
+            className={clsx(
+              styles.sidebarRail,
+              !sidebarCollapsed && styles.sidebarRailHidden,
+            )}
+            aria-hidden={!sidebarCollapsed}
+          >
             <button
               type="button"
               className={styles.railBtn}
@@ -522,38 +609,39 @@ export default function App() {
             </button>
             <span className={styles.railLabel}>文档库</span>
           </div>
-        ) : (
-          <>
-            <LibrarySidebar />
-            <div
-              className={styles.resizer}
-              role="separator"
-              aria-orientation="vertical"
-              aria-label="调整文档库宽度"
-              onPointerDown={startResize("side")}
-              onDoubleClick={() => useAppStore.getState().setSidebarWidth(240)}
-            />
-          </>
-        )}
+        </div>
+        <div
+          className={clsx(
+            styles.resizer,
+            styles.sideResizer,
+            sidebarCollapsed && styles.sideResizerCollapsed,
+          )}
+          role="separator"
+          aria-orientation="vertical"
+          aria-label="调整文档库宽度"
+          onPointerDown={startResize("side")}
+          onDoubleClick={() => useAppStore.getState().setSidebarWidth(240)}
+        />
 
         <div className={styles.mainCol}>
           <TabBar />
           <div className={styles.editorRow}>
             <EditorPane />
 
-            {aiOpen && (
-              <>
-                <div
-                  className={styles.resizer}
-                  role="separator"
-                  aria-orientation="vertical"
-                  aria-label="调整 AI 面板宽度"
-                  onPointerDown={startResize("ai")}
-                  onDoubleClick={() => useAppStore.getState().setAiWidth(356)}
-                />
-                <ChatPanel />
-              </>
-            )}
+            <div
+              className={clsx(styles.aiHost, !aiOpen && styles.aiHostClosed)}
+              style={{ width: aiOpen ? aiWidth + 1 : 0 }}
+            >
+              <div
+                className={styles.resizer}
+                role="separator"
+                aria-orientation="vertical"
+                aria-label="调整 AI 面板宽度"
+                onPointerDown={startResize("ai")}
+                onDoubleClick={() => useAppStore.getState().setAiWidth(356)}
+              />
+              <ChatPanel />
+            </div>
           </div>
         </div>
       </div>
@@ -562,9 +650,10 @@ export default function App() {
 
       {dialog === "save" && <SaveToLibraryDialog />}
       {dialog === "versions" && <VersionDialog />}
-      {dialog === "settings" && <SettingsDialog />}
+      {settingsMounted && <SettingsDialog closing={settingsClosing} />}
       {dialog === "quickopen" && <QuickOpen />}
-      <CloseConfirmDialog />
+      <TooltipLayer />
+      <FontZoomHud />
 
       {bootVisible && (
         <div className={clsx(styles.bootSplash, boot.done && styles.bootSplashDone)}>

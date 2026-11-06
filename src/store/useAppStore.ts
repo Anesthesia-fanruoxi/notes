@@ -1,12 +1,26 @@
 import { create } from "zustand";
 
+import {
+  DEFAULT_FONT_PRESET,
+  isFontPresetId,
+  type FontPresetId,
+} from "../lib/fonts";
 import { readPref } from "../lib/prefs";
 import type { Category, DocMeta, LineEnding, ScratchDoc } from "../lib/types";
 
 /**
  * 只放元数据。文档正文永远不进这里（PROMPT §3.1）。
  */
-export type ThemeMode = "system" | "light" | "dark";
+export type ThemeMode =
+  | "system"
+  | "light"
+  | "dark"
+  | "green"
+  | "sepia"
+  | "mist"
+  | "rose"
+  | "charcoal"
+  | "midnight";
 export type TabKind = "temp" | "library";
 export type DialogName =
   | "none"
@@ -15,13 +29,7 @@ export type DialogName =
   | "settings"
   | "versions"
   | "quickopen";
-export type CloseMode = "close" | "exit";
 export type SettingsSection = "general" | "ai" | "usage" | "editor" | "library" | "shortcuts";
-
-export interface ClosePrompt {
-  tabId: string;
-  mode: CloseMode;
-}
 
 export interface TabMeta {
   id: string;
@@ -51,6 +59,8 @@ export interface TabMeta {
   /** "__plain" 或语言名；空表示自动识别。 */
   languageOverride?: string;
   languageLabel?: string;
+  /** 超大文件只读打开：不建编辑器状态，正文由只读查看器按需读取。 */
+  readOnlyFile?: boolean;
 }
 
 export const FONT_SIZES = Array.from({ length: 25 }, (_, index) => index + 8);
@@ -70,6 +80,7 @@ export interface TabInit {
   scratchSource?: "new" | "file";
   diskMtime?: number;
   missing?: boolean;
+  readOnlyFile?: boolean;
 }
 
 let tabSeq = 0;
@@ -91,16 +102,16 @@ interface AppState {
   query: string;
 
   dialog: DialogName;
-  /** 关闭有脏内容的标签或退出应用时，等待用户选择。 */
-  closePrompt: ClosePrompt | null;
   settingsSection: SettingsSection;
 
   sidebarWidth: number;
   sidebarCollapsed: boolean;
   aiWidth: number;
   aiOpen: boolean;
+  outlineWidth: number;
 
   themeMode: ThemeMode;
+  fontPreset: FontPresetId;
   fontSize: number;
   lineHeight: number;
   /** "theme" 或 EDITOR_BACKGROUNDS 的 id，或 custom:#rrggbb。 */
@@ -133,7 +144,6 @@ interface AppState {
   toggleCollapsed: (categoryId: string) => void;
   setQuery: (query: string) => void;
   openDialog: (dialog: DialogName) => void;
-  setClosePrompt: (prompt: ClosePrompt | null) => void;
 
   setCursor: (line: number, col: number) => void;
   setDocSize: (size: number) => void;
@@ -149,9 +159,10 @@ interface AppState {
   toggleSidebar: () => void;
   setAiWidth: (width: number) => void;
   toggleAi: () => void;
+  setOutlineWidth: (width: number) => void;
 
-  cycleTheme: () => void;
   setThemeMode: (mode: ThemeMode) => void;
+  setFontPreset: (preset: FontPresetId) => void;
   setFontSize: (size: number) => void;
   setLineHeight: (lineHeight: number) => void;
   setEditorBackground: (value: string) => void;
@@ -176,6 +187,7 @@ function makeTab(init: TabInit, id: string): TabMeta {
     scratchSource: init.scratchSource,
     diskMtime: init.diskMtime,
     missing: init.missing,
+    readOnlyFile: init.readOnlyFile,
   };
 }
 
@@ -190,15 +202,19 @@ export const useAppStore = create<AppState>((set, get) => ({
   query: "",
 
   dialog: "none",
-  closePrompt: null,
   settingsSection: "general",
 
   sidebarWidth: clamp(readPref("sidebarWidth", 240), 190, 420),
   sidebarCollapsed: readPref("sidebarCollapsed", false),
   aiWidth: clamp(readPref("aiWidth", 356), 300, 560),
   aiOpen: false,
+  outlineWidth: clamp(readPref("outlineWidth", 260), 180, 420),
 
   themeMode: readPref<ThemeMode>("themeMode", "system"),
+  fontPreset: (() => {
+    const stored = readPref<string>("fontPreset", DEFAULT_FONT_PRESET);
+    return isFontPresetId(stored) ? stored : DEFAULT_FONT_PRESET;
+  })(),
   fontSize: clamp(readPref("fontSize", 13), 8, 32),
   lineHeight: readPref("lineHeight", 1.7),
   editorBackground: readPref("editorBackground", "theme"),
@@ -289,7 +305,6 @@ export const useAppStore = create<AppState>((set, get) => ({
     set((s) => ({ collapsed: { ...s.collapsed, [categoryId]: !s.collapsed[categoryId] } })),
   setQuery: (query) => set({ query }),
   openDialog: (dialog) => set({ dialog }),
-  setClosePrompt: (closePrompt) => set({ closePrompt }),
 
   setCursor: (line, col) => set({ cursor: { line, col } }),
   setDocSize: (docSize) => set({ docSize }),
@@ -307,13 +322,10 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   toggleAi: () => set((s) => ({ aiOpen: !s.aiOpen })),
 
-  cycleTheme: () => {
-    const order: ThemeMode[] = ["system", "light", "dark"];
-    const current = order.indexOf(get().themeMode);
-    set({ themeMode: order[(current + 1) % order.length] });
-  },
+  setOutlineWidth: (width) => set({ outlineWidth: clamp(width, 180, 420) }),
 
   setThemeMode: (themeMode) => set({ themeMode }),
+  setFontPreset: (fontPreset) => set({ fontPreset }),
   setFontSize: (size) => set({ fontSize: clamp(size, 8, 32) }),
   setLineHeight: (lineHeight) =>
     set({ lineHeight: Math.max(1.2, Math.min(2.2, Math.round(lineHeight * 100) / 100)) }),

@@ -10,6 +10,9 @@ export const SIZE_LIMITS = {
   lite: 20 * 1024 * 1024,
 };
 
+/** 超过该大小的文件不再进入编辑器，改用只读查看器。 */
+export const LARGE_FILE_LIMIT = SIZE_LIMITS.lite;
+
 export function tierFor(sizeBytes: number, truncated = false): EditorTier {
   if (truncated || sizeBytes > SIZE_LIMITS.lite) return "plain";
   if (sizeBytes > SIZE_LIMITS.full) return "lite";

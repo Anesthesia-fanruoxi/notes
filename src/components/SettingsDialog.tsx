@@ -22,7 +22,9 @@ import {
 } from "../lib/ai";
 import { copyText } from "../lib/clipboard";
 import { pickDirectory, refreshLibrary } from "../lib/documents";
+import { FONT_PRESETS, type FontPresetId } from "../lib/fonts";
 import { ipc } from "../lib/ipc";
+import { THEME_OPTIONS } from "../lib/themes";
 import type { AiTemplate } from "../lib/types";
 import UsagePanel from "./UsagePanel";
 import {
@@ -41,12 +43,6 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: "shortcuts", label: "快捷键" },
 ];
 
-const THEME_OPTIONS: { value: ThemeMode; label: string }[] = [
-  { value: "system", label: "跟随系统" },
-  { value: "light", label: "浅色" },
-  { value: "dark", label: "深色" },
-];
-
 const SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Ctrl+N", label: "新建临时文档" },
   { keys: "Ctrl+O", label: "打开文件" },
@@ -63,7 +59,11 @@ const SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Esc", label: "关闭浮层 / 面板" },
 ];
 
-export default function SettingsDialog() {
+interface SettingsDialogProps {
+  closing?: boolean;
+}
+
+export default function SettingsDialog({ closing = false }: SettingsDialogProps) {
   const closeDialog = useAppStore((s) => s.openDialog);
   const section = useAppStore((s) => s.settingsSection);
   const setSection = useAppStore((s) => s.setSettingsSection);
@@ -71,6 +71,8 @@ export default function SettingsDialog() {
   const categories = useAppStore((s) => s.categories);
   const themeMode = useAppStore((s) => s.themeMode);
   const setThemeMode = useAppStore((s) => s.setThemeMode);
+  const fontPreset = useAppStore((s) => s.fontPreset);
+  const setFontPreset = useAppStore((s) => s.setFontPreset);
   const fontSize = useAppStore((s) => s.fontSize);
   const setFontSize = useAppStore((s) => s.setFontSize);
   const lineHeight = useAppStore((s) => s.lineHeight);
@@ -351,7 +353,7 @@ export default function SettingsDialog() {
     });
 
   return (
-    <div className={styles.scrim}>
+    <div className={clsx(styles.scrim, closing && styles.scrimClosing)}>
       <div className={clsx(styles.modal, styles.modalWide, styles.settingsModal)}>
         <div className={styles.mHd}>
           <b>设置</b>
@@ -405,7 +407,7 @@ export default function SettingsDialog() {
                   <span>关闭窗口时收进托盘</span>
                 </label>
                 <div className={styles.desc}>
-                  取消勾选后，关闭按钮会走退出流程（逐个确认未保存的文档）。托盘左键显示/隐藏，右键可新建或退出。
+                  取消勾选后，关闭按钮会走退出流程：未保存内容先落快照，不弹确认。托盘左键显示/隐藏，右键可新建或退出。
                 </div>
               </>
             )}
@@ -623,6 +625,26 @@ export default function SettingsDialog() {
 
             {section === "editor" && (
               <>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>字体</label>
+                  <select
+                    className={styles.select}
+                    value={fontPreset}
+                    onChange={(event) =>
+                      setFontPreset(event.target.value as FontPresetId)
+                    }
+                  >
+                    {FONT_PRESETS.map((preset) => (
+                      <option key={preset.id} value={preset.id}>
+                        {preset.label}
+                      </option>
+                    ))}
+                  </select>
+                  <div className={styles.desc}>
+                    全局生效；只引用系统已安装字体，不打包字体文件，缺失时自动回退。
+                  </div>
+                </div>
+
                 <div className={styles.field}>
                   <label className={styles.fieldLabel}>字号</label>
                   <div className={styles.sliderRow}>

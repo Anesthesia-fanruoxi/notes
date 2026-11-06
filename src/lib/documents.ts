@@ -7,7 +7,7 @@ import { cancelScratch } from "../editor/autosave";
 import { readTabContent } from "../editor/content";
 import { stopRecovery } from "../editor/recovery";
 import { dropTabState, putTabState } from "../editor/tabStates";
-import { tierFor } from "../editor/tiers";
+import { LARGE_FILE_LIMIT, tierFor } from "../editor/tiers";
 import { useAppStore, type TabMeta } from "../store/useAppStore";
 import { forgetTempAiState } from "./ai";
 import { ipc } from "./ipc";
@@ -45,7 +45,29 @@ export async function openPaths(paths: string[]): Promise<void> {
         continue;
       }
 
+      const opened = useAppStore.getState().tabs.find((tab) => tab.path === path);
+      if (opened) {
+        useAppStore.getState().setActiveTab(opened.id);
+        continue;
+      }
+
       const name = baseName(path);
+      const info = await ipc.fileInfo(path);
+      if (info.sizeBytes > LARGE_FILE_LIMIT) {
+        // 大文件不读正文、不建 EditorState、不写 scratch，交给只读查看器按需取行。
+        useAppStore.getState().addTab({
+          title: name,
+          kind: "temp",
+          filename: name,
+          scratchSource: "file",
+          path,
+          encoding: "UTF-8",
+          sizeBytes: info.sizeBytes,
+          readOnlyFile: true,
+        });
+        continue;
+      }
+
       const doc = await ipc.readTextFile(path);
       const mtime = await ipc.fileMtime(path).catch(() => null);
       const id = useAppStore.getState().addTab({
@@ -142,7 +164,7 @@ export async function openLibraryDoc(docId: string): Promise<void> {
 
 export async function saveLibraryTab(tabId: string): Promise<void> {
   const tab = useAppStore.getState().tabs.find((item) => item.id === tabId);
-  if (!tab?.docId) return;
+  if (!tab?.docId || tab.readOnlyFile) return;
 
   const content = readTabContent(tabId);
   const meta = await ipc.writeDoc(
@@ -167,6 +189,10 @@ export async function saveActiveTab(): Promise<void> {
   const state = useAppStore.getState();
   const tab = state.tabs.find((item) => item.id === state.activeTabId);
   if (!tab) return;
+  if (tab.readOnlyFile) {
+    window.alert("大文件以只读方式打开，不能保存。");
+    return;
+  }
 
   if (tab.kind === "library") {
     await saveLibraryTab(tab.id);
@@ -180,7 +206,7 @@ export async function saveActiveTab(): Promise<void> {
 /** 临时文档 Ctrl+S：把当前副本写回原文件（只在这一刻覆盖磁盘）。 */
 export async function saveTempFile(tabId: string): Promise<void> {
   const tab = useAppStore.getState().tabs.find((item) => item.id === tabId);
-  if (!tab?.path) return;
+  if (!tab?.path || tab.readOnlyFile) return;
 
   const content = readTabContent(tabId);
   await ipc.writeTextFile(tab.path, content, tab.encoding, tab.hasBom, tab.lineEnding);
@@ -212,7 +238,7 @@ export async function saveTempFile(tabId: string): Promise<void> {
 /** 磁盘文件被删掉后，用编辑器里的副本把它写回去。 */
 export async function restoreDeletedFile(tabId: string): Promise<void> {
   const tab = useAppStore.getState().tabs.find((item) => item.id === tabId);
-  if (!tab?.path) return;
+  if (!tab?.path || tab.readOnlyFile) return;
 
   const content = readTabContent(tabId);
   await ipc.writeTextFile(tab.path, content, tab.encoding, tab.hasBom, tab.lineEnding);
@@ -242,7 +268,7 @@ export async function removeMissingRecord(tabId: string): Promise<void> {
 export async function reloadTabFromDisk(tabId: string): Promise<void> {
   const state = useAppStore.getState();
   const tab = state.tabs.find((item) => item.id === tabId);
-  if (!tab?.path) return;
+  if (!tab?.path || tab.readOnlyFile) return;
 
   const doc = await ipc.readTextFile(tab.path);
   const next = createEditorState(
@@ -304,10 +330,10 @@ export async function saveTempToLibrary(
 ): Promise<void> {
   const state = useAppStore.getState();
   const tab = state.tabs.find((item) => item.id === tabId);
-  if (!tab) return;
+  if (!tab || tab.readOnlyFile) return;
 
   const content = readTabContent(tabId);
-  const extension = tab.filename ? extensionOf(tab.filename) : "md";
+  const extension = tab.filename ? extensionOf(tab.filename) : "txt";
   const meta = await ipc.createDoc({
     title,
     categoryId,

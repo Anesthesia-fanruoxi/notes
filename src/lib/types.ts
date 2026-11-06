@@ -13,6 +13,24 @@ export interface FileDoc {
   truncated: boolean;
 }
 
+export interface FileInfo {
+  sizeBytes: number;
+  mtime: number;
+}
+
+export interface LargeFileMeta {
+  sizeBytes: number;
+  lineCount: number;
+  encoding: string;
+  mtime: number;
+}
+
+export interface LargeFileWindow {
+  startLine: number;
+  lines: string[];
+  totalLines: number;
+}
+
 export interface Category {
   id: string;
   name: string;

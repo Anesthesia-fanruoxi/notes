@@ -217,7 +217,7 @@ class CodeFooterWidget extends WidgetType {
   }
 }
 
-interface TableBlock {
+export interface TableBlock {
   start: number;
   end: number;
   header: string[];
@@ -298,9 +298,26 @@ function renderInlineMarkdown(text: string, parent: HTMLElement): void {
   if (last < text.length) parent.append(document.createTextNode(text.slice(last)));
 }
 
+/** 表格外框的上下 padding（px），估算整块高度时算进去。 */
+const TABLE_PADDING = 12;
+
+/** 按当前编辑器字号估算表格行高：字号是 CSS 变量，滚动定位前读一次即可。 */
+function estimateTableRowHeight(): number {
+  const root = document.documentElement;
+  const size = Number.parseFloat(root.style.getPropertyValue("--editor-font-size")) || 13;
+  const lineHeight =
+    Number.parseFloat(root.style.getPropertyValue("--editor-line-height")) || 1.7;
+  return size * 0.92 * lineHeight + 11;
+}
+
 class TableWidget extends WidgetType {
   constructor(readonly table: TableBlock) {
     super();
+  }
+
+  /** 整块表格的高度估算：没有它，CM 把长文里的表格当成很矮，远处跳转和滚动条全都会偏。 */
+  get estimatedHeight(): number {
+    return TABLE_PADDING + (this.table.rows.length + 1) * estimateTableRowHeight();
   }
 
   eq(other: TableWidget): boolean {
@@ -316,6 +333,7 @@ class TableWidget extends WidgetType {
   toDOM(): HTMLElement {
     const wrap = document.createElement("div");
     wrap.className = "cm-md-table";
+    wrap.dataset.tableStart = String(this.table.start);
 
     const table = document.createElement("table");
     const thead = document.createElement("thead");
@@ -541,6 +559,8 @@ interface CodeBlockInfo {
 interface LivePreviewValue {
   decorations: DecorationSet;
   blocks: readonly CodeBlockInfo[];
+  /** 表格的源码行范围，滚动同步靠它把行号映射到表格行。 */
+  tables: readonly TableBlock[];
 }
 
 /** 代码块扫描：块信息给渲染和选区守卫共用，围栏行仍用于表格避让。 */
@@ -595,7 +615,7 @@ function build(state: EditorState): LivePreviewValue {
 
   // 大文档关闭装饰，避免每次输入全量扫描。
   if (doc.lines > 3000) {
-    return { decorations: Decoration.none, blocks: [] };
+    return { decorations: Decoration.none, blocks: [], tables: [] };
   }
 
   const { fences, blocks } = scanCodeBlocks(doc);
@@ -607,6 +627,7 @@ function build(state: EditorState): LivePreviewValue {
   }
 
   const tables = scanTables(doc, fences);
+  const tableList = Array.from(tables.values());
 
   const builder = new RangeSetBuilder<Decoration>();
   let lineNumber = 1;
@@ -661,7 +682,7 @@ function build(state: EditorState): LivePreviewValue {
     lineNumber += 1;
   }
 
-  return { decorations: builder.finish(), blocks };
+  return { decorations: builder.finish(), blocks, tables: tableList };
 }
 
 /**

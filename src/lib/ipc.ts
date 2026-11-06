@@ -11,7 +11,10 @@ import type {
   DeleteOutcome,
   DocMeta,
   FileDoc,
+  FileInfo,
   ImportReport,
+  LargeFileMeta,
+  LargeFileWindow,
   LibraryIndex,
   LineEnding,
   RecoveryMeta,
@@ -66,6 +69,12 @@ export const ipc = {
   ) => call<void>("write_text_file", { path, content, encoding, hasBom, lineEnding }),
   takeCliArgs: () => call<string[]>("take_cli_args"),
   fileMtime: (path: string) => call<number | null>("file_mtime", { path }),
+  fileInfo: (path: string) => call<FileInfo>("file_info", { path }),
+
+  /* 大文件只读模式 */
+  largeFileOpen: (path: string) => call<LargeFileMeta>("large_file_open", { path }),
+  largeFileLines: (path: string, startLine: number, count: number) =>
+    call<LargeFileWindow>("large_file_lines", { path, startLine, count }),
 
   /* 文档库 */
   listLibrary: () => call<LibraryIndex>("list_library"),

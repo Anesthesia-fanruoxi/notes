@@ -1,6 +1,7 @@
 import { createEditorState } from "../editor/createEditor";
 import { handleEditorUpdate } from "../editor/handleUpdate";
 import { dropTabState, putTabState } from "../editor/tabStates";
+import { LARGE_FILE_LIMIT } from "../editor/tiers";
 import { useAppStore } from "../store/useAppStore";
 import { forgetTempAiState } from "./ai";
 import { ipc } from "./ipc";
@@ -58,6 +59,30 @@ export async function openScratchRecord(record: ScratchDoc): Promise<void> {
   }
 
   try {
+    // 旧版本可能给大文件留了整篇 scratch；原文件还在时直接按只读打开，不读快照。
+    if (record.path) {
+      const info = await ipc.fileInfo(record.path).catch(() => null);
+      if (info && info.sizeBytes > LARGE_FILE_LIMIT) {
+        const opened = useAppStore.getState().tabs.find((tab) => tab.path === record.path);
+        if (opened) {
+          useAppStore.getState().setActiveTab(opened.id);
+          return;
+        }
+        useAppStore.getState().addRestoredTab(record.tabId, {
+          title: record.title,
+          kind: "temp",
+          filename: baseName(record.path),
+          scratchSource: record.source,
+          path: record.path,
+          encoding: "UTF-8",
+          sizeBytes: info.sizeBytes,
+          readOnlyFile: true,
+        });
+        useAppStore.getState().setActiveTab(record.tabId);
+        return;
+      }
+    }
+
     const doc = await ipc.readScratch(record.tabId);
     const mtime = record.path ? await ipc.fileMtime(record.path).catch(() => null) : null;
     useAppStore.getState().addRestoredTab(record.tabId, {

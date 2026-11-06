@@ -20,7 +20,7 @@ function currentContent(tabId: string): string | undefined {
 
 async function writeScratch(tabId: string): Promise<void> {
   const current = useAppStore.getState().tabs.find((item) => item.id === tabId);
-  if (!current || current.kind !== "temp") return;
+  if (!current || current.kind !== "temp" || current.readOnlyFile) return;
   const content = currentContent(tabId);
   if (content === undefined) return;
 
@@ -38,7 +38,7 @@ async function writeScratch(tabId: string): Promise<void> {
 
 export function scheduleScratch(tabId: string): void {
   const tab = useAppStore.getState().tabs.find((item) => item.id === tabId);
-  if (!tab || tab.kind !== "temp") return;
+  if (!tab || tab.kind !== "temp" || tab.readOnlyFile) return;
 
   const existing = timers.get(tabId);
   if (existing) window.clearTimeout(existing);

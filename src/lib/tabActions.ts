@@ -9,20 +9,6 @@ import { forgetTempAiState } from "./ai";
  * 一律不弹确认，下次打开直接接着改。
  */
 
-/** 兼容旧确认框：现在关闭不再询问，这里只负责收掉残留的弹层状态。 */
-export function answerClose(_choice?: "save" | "discard" | "cancel"): void {
-  useAppStore.getState().setClosePrompt(null);
-}
-
-let saveResolver: ((saved: boolean) => void) | null = null;
-
-/** SaveToLibraryDialog 保存成功 / 取消时调用（关闭流程已不再等待它）。 */
-export function resolveSaveToLibrary(saved: boolean): void {
-  const resolve = saveResolver;
-  saveResolver = null;
-  resolve?.(saved);
-}
-
 function cleanupTab(id: string): void {
   const tab = useAppStore.getState().tabs.find((item) => item.id === id);
   if (!tab) return;
@@ -67,12 +53,11 @@ export function closeActiveTab(): void {
  * 退出应用：所有未保存的改动都落快照，不弹确认。
  * 下次打开文档时直接接着改（临时文件同理）。
  */
-export async function confirmExit(): Promise<boolean> {
+export async function flushBeforeExit(): Promise<void> {
   const tabs = useAppStore.getState().tabs;
   await Promise.all(
     tabs.map((tab) =>
       tab.kind === "temp" ? flushScratchNow(tab.id) : flushRecoveryNow(tab.id),
     ),
   );
-  return true;
 }

@@ -232,6 +232,10 @@ export default function ChatPanel() {
 
   async function runRequest(instruction: string): Promise<void> {
     if (!tab || streaming || !canRead || requestRef.current) return;
+    if (tab.readOnlyFile) {
+      setError("大文件以只读方式打开，无法使用 AI。");
+      return;
+    }
     const text = instruction.trim();
     if (!text) return;
 
@@ -406,6 +410,10 @@ export default function ChatPanel() {
 
   async function applyMessage(contentToApply: string, mode: "replace" | "insert"): Promise<void> {
     if (!tab) return;
+    if (tab.readOnlyFile) {
+      setError("大文件以只读方式打开，不能应用 AI 修改。");
+      return;
+    }
     const view = getActiveEditorView();
     if (!view || getActiveViewTabId() !== tab.id) {
       setError("请先回到要修改的文档。");
