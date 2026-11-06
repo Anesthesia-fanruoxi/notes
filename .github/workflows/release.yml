@@ -14,8 +14,8 @@ jobs:
       fail-fast: false
       matrix:
         include:
-          # - platform: windows-latest
-          #   args: ''
+          - platform: windows-latest
+            args: ''
           - platform: macos-latest
             args: '--target aarch64-apple-darwin'
     runs-on: ${{ matrix.platform }}
@@ -60,7 +60,10 @@ jobs:
           releaseBody: |
             ## 下载
 
+            - Windows（x64）：`Note_*_x64-setup.exe`
             - macOS Apple Silicon（M 系列）：`Note_*_aarch64.dmg`
+
+            Windows 安装包未签名，SmartScreen 可能提示「未知发布者」，选择「更多信息 → 仍要运行」即可。
 
             macOS 版本未签名/公证，首次打开若被系统拦截，请在「系统设置 → 隐私与安全性」中允许，或右键选择「打开」。
           releaseDraft: true
