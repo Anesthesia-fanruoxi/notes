@@ -1,6 +1,7 @@
 mod ai;
 mod commands;
 mod encoding;
+mod large_file;
 mod library;
 mod usage;
 
@@ -10,7 +11,7 @@ use std::time::Duration;
 use tauri::menu::{Menu, MenuItem};
 use tauri::tray::{MouseButton, MouseButtonState, TrayIconBuilder, TrayIconEvent};
 use tauri::{AppHandle, Emitter, Manager, WindowEvent};
-use tauri_plugin_window_state::{AppHandleExt, StateFlags};
+use tauri_plugin_window_state::{AppHandleExt, StateFlags, WindowExt};
 
 /// 记住窗口尺寸/位置/最大化，但不记 VISIBLE（关闭到托盘时会隐藏）。
 const STATE_FLAGS: StateFlags = StateFlags::SIZE
@@ -138,9 +139,11 @@ pub fn run() {
             }
         }))
         // 不记忆 VISIBLE：关闭到托盘时窗口是隐藏的，记下来会导致下次启动看不见。
+        // 主窗口由 setup 手动恢复状态后再显示，避免先出现默认尺寸再跳到保存尺寸。
         .plugin(
             tauri_plugin_window_state::Builder::default()
                 .with_state_flags(STATE_FLAGS)
+                .skip_initial_state("main")
                 .build(),
         )
         .plugin(tauri_plugin_global_shortcut::Builder::new().build())
@@ -152,6 +155,13 @@ pub fn run() {
             usage::prune(app.handle());
             setup_tray(app)?;
             setup_window_state_persist(app.handle().clone());
+
+            // 隐藏创建 → 恢复上次尺寸/位置/最大化 → 再显示，用户只看到最终窗口。
+            if let Some(window) = app.get_webview_window("main") {
+                let _ = window.restore_state(STATE_FLAGS);
+                let _ = window.show();
+                let _ = window.set_focus();
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -159,6 +169,9 @@ pub fn run() {
             commands::fs::read_text_file,
             commands::fs::write_text_file,
             commands::fs::file_mtime,
+            commands::fs::file_info,
+            commands::fs::large_file_open,
+            commands::fs::large_file_lines,
             commands::fs::take_cli_args,
             commands::library::list_library,
             commands::library::create_doc,

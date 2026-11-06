@@ -5,7 +5,7 @@
   "identifier": "com.notelib.app",
   "build": {
     "beforeDevCommand": "npm run dev",
-    "devUrl": "http://localhost:1420",
+    "devUrl": "http://localhost:1422",
     "beforeBuildCommand": "npm run build",
     "frontendDist": "../dist"
   },
@@ -18,7 +18,8 @@
         "minWidth": 900,
         "minHeight": 620,
         "center": true,
-        "decorations": true
+        "decorations": true,
+        "visible": false
       }
     ],
     "security": {
