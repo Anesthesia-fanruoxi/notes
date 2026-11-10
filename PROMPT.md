@@ -74,9 +74,12 @@
 **编辑器**
 - 新建 / 打开 / 保存 / 另存为、多标签页（脏标记、中键关闭、Ctrl+Tab）
 - 按扩展名自动识别语言并语法高亮
-- 编码探测与保留（UTF-8 / UTF-8 BOM / GBK / GB18030 / UTF-16LE），换行符 CRLF/LF 保留
+- 编码探测与保留（UTF-8 / UTF-8 BOM / GBK / GB18030 / UTF-16LE），换行符 CR / CRLF / LF 保留，新建文档默认 LF
 - 大文件自动降级：超过 20MiB 只读打开（虚拟滚动 / 行号 / 跳转），小文件继续编辑
 - 查找替换（当前文件，支持正则）
+- 列选择：编辑区 `Alt / Option`（或 `Ctrl`）+ 拖动矩形列选择（多光标列编辑）；普通点击、`Esc`、普通方向键退出列模式回到单光标
+- 未保存改动：以源文件为基线对比当前快照，行号后显示色条，悬停查看该行旧/新内容；保存后基线更新、标记清空；无源文件的新建文档基线为空
+- 多光标编辑依赖 `EditorState.allowMultipleSelections.of(true)`，并关闭 clickAddsSelectionRange 防止点击累积
 - Markdown 预览：代码模式左右分栏（左源码实时编辑、右只读渲染），`Ctrl+Shift+V` 切换分栏/整页预览
 - 九套主题（跟随系统/浅色/深色/护眼绿/暖米色/雾蓝/豆沙粉/炭灰/午夜蓝），状态栏与设置页可切换
 
@@ -140,12 +143,12 @@ Rust 侧 `read_text_file` 的职责：
 
 1. 按 BOM 判断（UTF-8 BOM / UTF-16LE BOM / UTF-16BE BOM）。
 2. 无 BOM 时用 `chardetng` 猜编码，拿到候选后**必须实际解码验证**（`encoding_rs` 解码后检查有无替换字符 U+FFFD），失败则回退 `GB18030` → `UTF-8` 顺序试探。
-3. 探测换行符：出现 `\r\n` 记为 CRLF，否则 LF（混合时取多数并记录）。
+3. 探测换行符：CRLF / LF / CR 取多数并记录；CR 仅在严格多数时采用，其余回退 LF / CRLF 原有规则，空文件默认 LF。
 4. 返回：`{ content, encoding, hasBom, lineEnding, sizeBytes, truncated }`。
 
 保存时**按原编码 / 原 BOM / 原换行符写回**，用户没主动改就不许变。入库时沿用当前编码；导出时同样沿用。
 
-前端状态栏必须显示：`GBK | CRLF`，并允许点击临时改成 UTF-8 / LF（改动只影响本次保存）。
+前端状态栏必须显示：`GBK | CRLF`；换行符左键循环切换、右键列表选择 LF / CRLF / CR（整篇转换，保存时生效，默认 LF）。
 
 ### 5.3 大文件降级
 
@@ -165,7 +168,7 @@ Rust 侧 `read_text_file` 的职责：
 
 | 快捷键 | 行为 |
 |---|---|
-| `Ctrl+N` / `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` | 新建（临时）/ 打开（临时）/ 保存 / 另存为/导出副本 |
+| `Ctrl+N` / `Ctrl+O` / `Ctrl+S` / `Ctrl+Shift+S` | 新建空白文档 / 打开（临时）/ 保存 / 另存为/导出副本 |
 | `Ctrl+W` / `Ctrl+Shift+T` | 关闭标签 / 恢复刚关闭的标签 |
 | `Ctrl+Tab` / `Ctrl+Shift+Tab` | 下一个 / 上一个标签 |
 | `Ctrl+F` / `Ctrl+H` | 查找 / 替换（`@codemirror/search` 自带面板，不要自己造） |
@@ -173,7 +176,7 @@ Rust 侧 `read_text_file` 的职责：
 | `Ctrl+,` | 设置 |
 | `Ctrl+/` | 注释 / 取消注释 |
 | `Ctrl+Shift+V` | Markdown 代码分栏 / 整页预览切换（只读预览，仅 md 生效） |
-| `Ctrl+滚轮` | 缩放正文字号（中央 HUD 显示 1 秒） |
+| `Ctrl+滚轮` | 缩放整个界面与正文字号（中央 HUD 显示 1 秒） |
 | `Ctrl+Shift+/` | 开关 AI 侧栏 |
 | `Esc` | 关闭当前浮层/面板 |
 
@@ -189,7 +192,7 @@ Rust 侧 `read_text_file` 的职责：
 **临时文档（scratch）**
 
 - 输入停止 800ms 后自动写入 `scratch/<tabId>.md`（原子写：临时文件 + rename），**不弹提示、不打断输入**。
-- 临时文件分两种：`+`/`Ctrl+N` 新建（source=new，文件就在 scratch 目录），以及拖入/双击/命令行打开（source=file，记录原路径）。
+- 临时文件分两种：标签栏 `+` / `Ctrl+N` 新建文本（默认 .txt，source=new，文件在 scratch 目录）；以及拖入/双击/命令行打开（source=file，记录原路径）。
 - **关闭标签不删除临时文件**，也不弹确认；内容在关闭前立刻落盘，侧栏「临时文档」按记录展示，点击可重新打开。
 - 删除入口在侧栏每行的 `×`：source=new 确认后删除临时文件；source=file 只删记录，磁盘上的文件不动。
 - 应用退出时保留 scratch；下次启动恢复最多 10 个临时文档到临时区（按修改时间倒序）。
@@ -198,10 +201,12 @@ Rust 侧 `read_text_file` 的职责：
 **常驻文档**
 
 - **不自动覆盖库内正文**（除显式 `Ctrl+S`）。这一点不能妥协。
+- 首次打开时若快照不存在，从源文件创建一次；之后始终从快照打开。
 - 有未保存改动时每 5s 写 `recovery/<docId>.snap`（含原编码、换行符、时间戳）；关闭标签前立刻补写一次。
-- 打开文档时若存在快照且内容不同 → 直接用快照内容打开并标脏（不再弹"是否恢复"）。
-- 只有显式保存才删除对应恢复快照；未保存的改动会一直留着，直到保存。
-- 恢复目录总量超 100MB 时按最旧优先清理。
+- 窗口失焦 / 隐藏 / 每 5 秒兜底：只补写有未保存改动的标签，连续输入也不会一直不落盘。
+- 打开文档时直接用快照内容；快照与源文件不同则标脏（不再弹"是否恢复"）。
+- 保存前先把快照同步到当前正文，再覆盖源文件；**保存不删除快照**，下次打开仍从快照进入。快照只在删除文档或清理孤儿时清除，不按目录体积自动删除。
+- 改动对比：源文件 vs 快照（行号后标记）。
 
 **从磁盘打开的临时文件**
 
@@ -215,7 +220,7 @@ Rust 侧 `read_text_file` 的职责：
 
 - 每次应用 AI 生成的修改前，先把当前正文完整存到 `versions/<docId>/<ts>.snap`，记录 `source: "before-ai"`；临时文档不产生版本，只保留那一份草稿快照。
 - 手动还原也算一次修改，还原前同样存快照（`source: "before-restore"`）。
-- 每篇文档保留最近 20 份，超出删最旧；版本目录总占用超 200MB 时按最旧清理。
+- 版本历史只在保存前保留：文档保存成功时清空该文档的全部版本；不按数量或体积自动清理。AI 用量保留启动自动清理（12 个月）。
 
 ### 5.6 搜索
 
@@ -263,7 +268,7 @@ Rust 侧 `read_text_file` 的职责：
 - **用量统计**：每次调用追加一行 JSONL（`appdata/usage/usage-YYYY-MM.jsonl`，保留 12 个月），记录输入/输出/缓存命中 tokens、耗时与提示词摘要；设置页「用量」按日/周/月聚合展示，费用按 AI 页配置的单价（元/百万 tokens）估算。
 - 预置常用服务商：DeepSeek、通义千问、GLM Token Plan CN、Kimi Token Plan CN、MiMo Token Plan CN、Agnes、本地 Ollama（`http://localhost:11434/v1`）；服务模板用「常用服务商 / 自定义服务商」两个标签页切换，自定义只支持 OpenAI 协议。
 - 模型列表点输入框自动拉取：`GET {Base URL}/models`（带已存 Key），下拉可选也可手填。
-- **API Key 存 Windows 凭据管理器**（Rust `keyring` crate，service 名 = 应用 id），前端只持有"是否已配置"的布尔值，**Key 永不进入 localStorage / Zustand / 日志**。
+- **API Key 存系统凭据库**（Windows 凭据管理器 / macOS 钥匙串，Rust `keyring` crate，service 名 = 应用 id），前端只持有"是否已配置"的布尔值，**Key 永不进入 localStorage / Zustand / 日志**。
 - 所有 AI 请求必须可中断（AbortController），关闭面板、切标签、Esc 都中止。
 - 失败时显示可读错误（401 → "密钥无效"，超时 → "网络超时"，429 → "请求过于频繁"，其余显示状态码），不要吞异常。
 - 提示词模板放 `src/lib/prompts.ts`，每条指令一段 system prompt，要求"只输出结果，不要解释，不要加引号包裹"。
@@ -271,8 +276,8 @@ Rust 侧 `read_text_file` 的职责：
 ### 5.8 系统集成
 
 - **单实例**：`tauri-plugin-single-instance`，第二次启动时把命令行参数（文件路径）转发给已存在窗口并聚焦。
-- **文件关联**：`tauri.conf.json` 的 `bundle.fileAssociations` 注册 `.txt .md .log`（可选 `.json`），role = `Editor`。
-- **启动参数**：`std::env::args()` → 跳过 exe 自身，第一个存在的文件路径**以临时文档打开**，不入库。
+- **文件关联**：`tauri.conf.json` 的 `bundle.fileAssociations` 注册 `.txt .md .log`（可选 `.json`），role = `Editor`；macOS 的 Finder 打开走 `RunEvent::Opened`。
+- **启动参数**：argv 与 macOS `Opened` 事件里的文件路径统一进 Rust 侧待打开队列；前端启动或收到 `cli://open` 时调用 `take_pending_files` 取出，以临时文档打开，不入库。
 - **拖拽入窗**：文件拖到窗口任意位置 → 临时文档；多个文件 → 多个标签；不做"拖入即入库"。
 - **托盘**：左键显示/隐藏窗口，右键菜单（显示主窗口 / 新建文档 / 退出）。
 - **全局快捷键**：默认 `Ctrl+Alt+N` 唤起并聚焦，可在设置里修改（`@tauri-apps/plugin-global-shortcut`）。
@@ -283,7 +288,7 @@ Rust 侧 `read_text_file` 的职责：
 - 九套主题：跟随系统/浅/深 + 护眼绿/暖米色/雾蓝/豆沙粉/炭灰/午夜蓝；CSS 变量驱动，`prefers-color-scheme` 跟随系统，命名主题只覆盖调色板。
 - CodeMirror 主题要与页面主题一致，用 `EditorView.theme()` + `HighlightStyle`，不要用第三方主题包。
 - 等宽字体栈：`"JetBrains Mono", "Cascadia Code", "Sarasa Mono SC", Consolas, monospace`，中文字体回退 `"Microsoft YaHei UI"`。
-- 字号（8–32px，默认 13，状态栏可选）、行高在设置里可调，立即生效并持久化。
+- 字号（8–32px，默认 13，状态栏可选）通过 WebView 原生缩放作用于整个界面：侧栏、标签、设置、状态栏和正文一起缩放，编辑器以 13px 基准排版；行高只影响编辑器正文。两者在设置里可调，立即生效并持久化。
 - 布局：
 
 ```
@@ -444,7 +449,7 @@ src-tauri/
 | `load_chat` / `append_chat` / `clear_chat` | `docId` / `docId, message` / `docId` | `Vec<ChatMessage>` / `()` / `()` |
 | `list_versions` / `read_version` / `restore_version` | `docId`（+ `versionId`） | `Vec<VersionMeta>` / `String` / `()` |
 | `set_secret` / `get_secret_status` / `clear_secret` | `key, value` | 不返回明文 |
-| `take_cli_args` | — | `Vec<String>` |
+| `take_pending_files` | — | `Vec<String>`（取出文件关联/命令行暂存路径） |
 | `search_in_library` | `pattern`（二期） | event `search://batch` |
 
 错误统一用 `Result<T, String>`，前端 `ipc.ts` 里把错误转成可读中文提示。
