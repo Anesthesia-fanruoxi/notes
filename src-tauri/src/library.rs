@@ -73,6 +73,21 @@ pub struct ScratchDoc {
     pub path: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageCategory {
+    pub key: String,
+    pub bytes: u64,
+    pub files: u64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct StorageReport {
+    pub total_bytes: u64,
+    pub categories: Vec<StorageCategory>,
+}
+
 fn default_scratch_source() -> String {
     "new".to_string()
 }
@@ -166,13 +181,6 @@ pub struct VersionRestoreResult {
     pub snapshot: VersionMeta,
 }
 
-/// 恢复目录超过这个体积时按最旧清理（PROMPT §5.5）。
-pub const RECOVERY_LIMIT_BYTES: u64 = 100 * 1024 * 1024;
-/// 每篇文档保留的版本数。
-pub const VERSIONS_PER_DOC: usize = 20;
-/// 版本目录总占用上限。
-pub const VERSIONS_LIMIT_BYTES: u64 = 200 * 1024 * 1024;
-
 #[derive(Debug, Clone)]
 pub struct WorkspacePaths {
     pub app_data: PathBuf,
@@ -242,11 +250,57 @@ pub fn ensure_layout(app: &AppHandle) -> Result<(), String> {
         save_index(&paths, &index)?;
     }
 
-    // 启动自检：超限快照按最旧清理，失败不阻塞启动。
-    prune_recovery(&paths);
-    prune_versions_total(&paths);
-
+    // 常驻快照不按大小删除；版本在保存时清空，不做自动清理。
     Ok(())
+}
+
+fn dir_usage(dir: &Path) -> (u64, u64) {
+    let mut bytes = 0;
+    let mut files = 0;
+    if let Ok(entries) = fs::read_dir(dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Ok(meta) = entry.metadata() {
+                if meta.is_dir() {
+                    let (child_bytes, child_files) = dir_usage(&path);
+                    bytes += child_bytes;
+                    files += child_files;
+                } else if meta.is_file() {
+                    bytes += meta.len();
+                    files += 1;
+                }
+            }
+        }
+    }
+    (bytes, files)
+}
+
+/// 只读存储统计：实时遍历各目录，不返回真实路径。
+pub fn storage_report(paths: &WorkspacePaths) -> StorageReport {
+    let dirs: [(&str, PathBuf); 7] = [
+        ("docs", paths.docs.clone()),
+        ("snapshotDocs", paths.recovery.clone()),
+        ("snapshotTemp", paths.scratch.clone()),
+        ("versions", paths.versions.clone()),
+        ("chats", paths.chats.clone()),
+        ("usage", paths.app_data.join("usage")),
+        ("trash", paths.app_data.join("trash")),
+    ];
+    let mut categories = Vec::with_capacity(dirs.len());
+    let mut total_bytes = 0;
+    for (key, dir) in dirs {
+        let (bytes, files) = dir_usage(&dir);
+        total_bytes += bytes;
+        categories.push(StorageCategory {
+            key: key.to_string(),
+            bytes,
+            files,
+        });
+    }
+    StorageReport {
+        total_bytes,
+        categories,
+    }
 }
 
 pub fn load_index(app: &AppHandle) -> Result<(WorkspacePaths, LibraryIndex), String> {
@@ -887,6 +941,14 @@ pub fn list_scratch(paths: &WorkspacePaths) -> Vec<ScratchDoc> {
                 continue;
             }
             if let Ok(raw) = fs::read_to_string(&path) {
+                // 旧版本临时表格记录：功能已移除，不再恢复到编辑器。
+                let legacy_sheet = serde_json::from_str::<serde_json::Value>(&raw)
+                    .ok()
+                    .and_then(|value| value.get("sheet").and_then(|flag| flag.as_bool()))
+                    .unwrap_or(false);
+                if legacy_sheet {
+                    continue;
+                }
                 if let Ok(meta) = serde_json::from_str::<ScratchDoc>(&raw) {
                     if paths.scratch.join(format!("{}.md", meta.tab_id)).exists() {
                         items.push(meta);
@@ -924,6 +986,40 @@ pub fn drop_scratch(paths: &WorkspacePaths, tab_id: &str) -> Result<(), String> 
         let _ = fs::remove_file(&meta);
     }
     Ok(())
+}
+
+/// 超过该大小的文件只读打开，不再写 scratch（与前端 LARGE_FILE_LIMIT 保持一致）。
+pub const LARGE_FILE_LIMIT: u64 = 20 * 1024 * 1024;
+
+/// 旧版本给超大文件写过整篇 scratch，这类记录永远不会被恢复；
+/// 源文件仍在且仍然超大时，启动时把快照和 sidecar 一起清掉。
+pub fn prune_legacy_large_scratch(paths: &WorkspacePaths, max_bytes: u64) {
+    let Ok(entries) = fs::read_dir(&paths.scratch) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let meta_path = entry.path();
+        if meta_path.extension().and_then(|s| s.to_str()) != Some("json") {
+            continue;
+        }
+        let Ok(raw) = fs::read_to_string(&meta_path) else {
+            continue;
+        };
+        let Ok(meta) = serde_json::from_str::<ScratchDoc>(&raw) else {
+            continue;
+        };
+        let Some(source) = meta.path.as_deref() else {
+            continue;
+        };
+        let oversized = fs::metadata(source)
+            .map(|info| info.is_file() && info.len() > max_bytes)
+            .unwrap_or(false);
+        if !oversized {
+            continue;
+        }
+        let _ = fs::remove_file(paths.scratch.join(format!("{}.md", meta.tab_id)));
+        let _ = fs::remove_file(&meta_path);
+    }
 }
 
 /* ---------- AI 会话 ---------- */
@@ -1047,39 +1143,7 @@ pub fn drop_recovery(paths: &WorkspacePaths, doc_id: &str) {
     }
 }
 
-/// 应用启动时调用：恢复目录超 100MB 时按修改时间丢最旧。
-fn prune_recovery(paths: &WorkspacePaths) {
-    let mut files: Vec<(PathBuf, SystemTime, u64)> = Vec::new();
-    if let Ok(entries) = fs::read_dir(&paths.recovery) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) != Some("snap") {
-                continue;
-            }
-            if let Ok(meta) = entry.metadata() {
-                files.push((
-                    path,
-                    meta.modified().unwrap_or(UNIX_EPOCH),
-                    meta.len(),
-                ));
-            }
-        }
-    }
 
-    let mut total: u64 = files.iter().map(|item| item.2).sum();
-    if total <= RECOVERY_LIMIT_BYTES {
-        return;
-    }
-    files.sort_by_key(|item| item.1);
-    for (path, _, size) in files {
-        if total <= RECOVERY_LIMIT_BYTES {
-            break;
-        }
-        if fs::remove_file(&path).is_ok() {
-            total = total.saturating_sub(size);
-        }
-    }
-}
 
 /* ---------- 版本快照（AI 修改 / 还原前置） ---------- */
 
@@ -1117,9 +1181,6 @@ pub fn create_version(
     let bytes = serde_json::to_vec(&snap).map_err(|e| format!("版本快照序列化失败：{e}"))?;
     write_atomic(&version_dir(paths, doc_id).join(format!("{id}.snap")), &bytes)
         .map_err(|e| format!("版本快照写入失败：{e}"))?;
-
-    prune_versions(paths, doc_id);
-    prune_versions_total(paths);
 
     Ok(VersionMeta {
         id,
@@ -1225,57 +1286,10 @@ pub fn restore_version(
     })
 }
 
-fn prune_versions(paths: &WorkspacePaths, doc_id: &str) {
+pub fn clear_versions(paths: &WorkspacePaths, doc_id: &str) {
     let dir = version_dir(paths, doc_id);
-    let mut files: Vec<PathBuf> = Vec::new();
-    if let Ok(entries) = fs::read_dir(&dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.extension().and_then(|s| s.to_str()) == Some("snap") {
-                files.push(path);
-            }
-        }
-    }
-    if files.len() <= VERSIONS_PER_DOC {
-        return;
-    }
-    files.sort();
-    let excess = files.len() - VERSIONS_PER_DOC;
-    for path in files.into_iter().take(excess) {
-        let _ = fs::remove_file(path);
-    }
-}
-
-fn prune_versions_total(paths: &WorkspacePaths) {
-    let mut files: Vec<(PathBuf, SystemTime, u64)> = Vec::new();
-    collect_version_files(&paths.versions, &mut files);
-    let mut total: u64 = files.iter().map(|item| item.2).sum();
-    if total <= VERSIONS_LIMIT_BYTES {
-        return;
-    }
-    files.sort_by_key(|item| item.1);
-    for (path, _, size) in files {
-        if total <= VERSIONS_LIMIT_BYTES {
-            break;
-        }
-        if fs::remove_file(&path).is_ok() {
-            total = total.saturating_sub(size);
-        }
-    }
-}
-
-fn collect_version_files(dir: &Path, out: &mut Vec<(PathBuf, SystemTime, u64)>) {
-    if let Ok(entries) = fs::read_dir(dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if path.is_dir() {
-                collect_version_files(&path, out);
-            } else if path.extension().and_then(|s| s.to_str()) == Some("snap") {
-                if let Ok(meta) = entry.metadata() {
-                    out.push((path, meta.modified().unwrap_or(UNIX_EPOCH), meta.len()));
-                }
-            }
-        }
+    if dir.exists() {
+        let _ = fs::remove_dir_all(dir);
     }
 }
 
@@ -1591,6 +1605,67 @@ mod tests {
     }
 
     #[test]
+    fn prune_legacy_large_scratch_only_when_source_is_oversized() {
+        let paths = temp_paths();
+        let big = paths.app_data.join("big.log");
+        let small = paths.app_data.join("small.log");
+        fs::write(&big, vec![b'x'; 8]).unwrap();
+        fs::write(&small, vec![b'x'; 4]).unwrap();
+
+        save_scratch(
+            &paths,
+            "tab-big",
+            "big.log",
+            "legacy",
+            "UTF-8",
+            false,
+            "LF",
+            "file",
+            big.to_str(),
+        )
+        .unwrap();
+        save_scratch(
+            &paths,
+            "tab-small",
+            "small.log",
+            "keep",
+            "UTF-8",
+            false,
+            "LF",
+            "file",
+            small.to_str(),
+        )
+        .unwrap();
+        save_scratch(
+            &paths,
+            "tab-gone",
+            "gone.log",
+            "keep",
+            "UTF-8",
+            false,
+            "LF",
+            "file",
+            Some("不存在的路径.log"),
+        )
+        .unwrap();
+        save_scratch(&paths, "tab-new", "未命名-1", "keep", "UTF-8", false, "LF", "new", None)
+            .unwrap();
+
+        prune_legacy_large_scratch(&paths, 5);
+
+        let listed = list_scratch(&paths);
+        let ids: Vec<&str> = listed.iter().map(|item| item.tab_id.as_str()).collect();
+        assert_eq!(ids.len(), 3);
+        assert!(ids.contains(&"tab-small"));
+        assert!(ids.contains(&"tab-gone"));
+        assert!(ids.contains(&"tab-new"));
+        assert!(!paths.scratch.join("tab-big.md").exists());
+        assert!(!paths.scratch.join("tab-big.json").exists());
+
+        let _ = fs::remove_dir_all(&paths.app_data);
+    }
+
+    #[test]
     fn backup_and_restore_roundtrip() {
         let paths = temp_paths();
         let mut index = empty_index();
@@ -1736,7 +1811,7 @@ mod tests {
     }
 
     #[test]
-    fn versions_keep_latest_twenty_and_restore_keeps_before_snapshot() {
+    fn versions_stack_until_cleared_and_restore_keeps_before_snapshot() {
         let paths = temp_paths();
         let mut index = empty_index();
         let doc = create_doc(
@@ -1761,9 +1836,9 @@ mod tests {
         }
 
         let listed = list_versions(&paths, &doc.id);
-        assert_eq!(listed.len(), VERSIONS_PER_DOC);
+        assert_eq!(listed.len(), 25);
         assert_eq!(listed[0].id, ids[24]);
-        assert!(!listed.iter().any(|item| item.id == ids[0]));
+        assert!(listed.iter().any(|item| item.id == ids[0]));
 
         let result = restore_version(
             &paths,
@@ -1786,6 +1861,9 @@ mod tests {
                 .iter()
                 .any(|item| item.source == "before-restore")
         );
+
+        clear_versions(&paths, &doc.id);
+        assert!(list_versions(&paths, &doc.id).is_empty());
 
         let _ = fs::remove_dir_all(&paths.app_data);
     }

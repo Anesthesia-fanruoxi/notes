@@ -25,7 +25,7 @@ import { pickDirectory, refreshLibrary } from "../lib/documents";
 import { FONT_PRESETS, type FontPresetId } from "../lib/fonts";
 import { ipc } from "../lib/ipc";
 import { THEME_OPTIONS } from "../lib/themes";
-import type { AiTemplate } from "../lib/types";
+import type { AiTemplate, StorageReport } from "../lib/types";
 import UsagePanel from "./UsagePanel";
 import {
   useAppStore,
@@ -41,10 +41,11 @@ const SECTIONS: { id: SettingsSection; label: string }[] = [
   { id: "editor", label: "编辑器" },
   { id: "library", label: "文档库" },
   { id: "shortcuts", label: "快捷键" },
+  { id: "guide", label: "使用说明" },
 ];
 
 const SHORTCUTS: { keys: string; label: string }[] = [
-  { keys: "Ctrl+N", label: "新建临时文档" },
+  { keys: "Ctrl+N", label: "新建空白文档" },
   { keys: "Ctrl+O", label: "打开文件" },
   { keys: "Ctrl+S", label: "保存 / 保存到文档库" },
   { keys: "Ctrl+Shift+S", label: "导出副本" },
@@ -58,6 +59,25 @@ const SHORTCUTS: { keys: string; label: string }[] = [
   { keys: "Ctrl+Shift+/", label: "开关 AI 侧栏" },
   { keys: "Esc", label: "关闭浮层 / 面板" },
 ];
+
+const STORAGE_LABELS: Record<string, string> = {
+  docs: "源文件",
+  snapshotDocs: "常驻快照",
+  snapshotTemp: "临时快照",
+  versions: "版本历史",
+  chats: "AI 会话",
+  usage: "AI 用量",
+  trash: "回收站",
+};
+
+function formatStorage(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`;
+  const kb = bytes / 1024;
+  if (kb < 1024) return `${kb.toFixed(1)} KB`;
+  const mb = kb / 1024;
+  if (mb < 1024) return `${mb.toFixed(1)} MB`;
+  return `${(mb / 1024).toFixed(2)} GB`;
+}
 
 interface SettingsDialogProps {
   closing?: boolean;
@@ -88,6 +108,30 @@ export default function SettingsDialog({ closing = false }: SettingsDialogProps)
   const [busy, setBusy] = useState("");
   const [libMessage, setLibMessage] = useState("");
   const [libError, setLibError] = useState("");
+  const [storage, setStorage] = useState<StorageReport | null>(null);
+  const [storageLoading, setStorageLoading] = useState(false);
+  const [storageError, setStorageError] = useState(false);
+  useEffect(() => {
+    if (section !== "library") return;
+    let cancelled = false;
+    setStorageLoading(true);
+    setStorage(null);
+    setStorageError(false);
+    void ipc
+      .storageReport()
+      .then((report) => {
+        if (!cancelled) setStorage(report);
+      })
+      .catch(() => {
+        if (!cancelled) setStorageError(true);
+      })
+      .finally(() => {
+        if (!cancelled) setStorageLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [section]);
 
   const [ai, setAi] = useState<AiSettings>(loadAiSettings);
   const [keyStatus, setKeyStatus] = useState(false);
@@ -659,6 +703,9 @@ export default function SettingsDialog({ closing = false }: SettingsDialogProps)
                     />
                     <span className={styles.sliderValue}>{fontSize}px</span>
                   </div>
+                  <div className={styles.desc}>
+                    通过 WebView 缩放同时作用于整个界面，侧栏、标签、设置和状态栏一起变化。
+                  </div>
                 </div>
 
                 <div className={styles.field}>
@@ -756,6 +803,45 @@ export default function SettingsDialog({ closing = false }: SettingsDialogProps)
                 </div>
 
                 <div className={styles.field}>
+                  <label className={styles.fieldLabel}>存储占用</label>
+                  {storage ? (
+                    <>
+                      <div className={styles.storageList}>
+                        {storage.categories.map((item) => {
+                          const percent =
+                            storage.totalBytes > 0
+                              ? (item.bytes / storage.totalBytes) * 100
+                              : 0;
+                          return (
+                            <div key={item.key} className={styles.storageRow}>
+                              <div className={styles.storageRowHead}>
+                                <span>{STORAGE_LABELS[item.key] ?? item.key}</span>
+                                <span className={styles.storageMeta}>
+                                  {formatStorage(item.bytes)} · {item.files} 个文件
+                                </span>
+                              </div>
+                              <div className={styles.storageBar}>
+                                <div
+                                  className={styles.storageBarFill}
+                                  style={{ width: `${percent}%` }}
+                                />
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      <div className={styles.desc}>
+                        总计 {formatStorage(storage.totalBytes)}。这里只展示占用，文件由应用自己管理，不需要手动清理。
+                      </div>
+                    </>
+                  ) : (
+                    <div className={styles.desc}>
+                      {storageLoading || !storageError ? "统计中…" : "暂时无法统计。"}
+                    </div>
+                  )}
+                </div>
+
+                <div className={styles.field}>
                   <label className={styles.fieldLabel}>备份</label>
                   <div className={styles.actionRow}>
                     <button
@@ -843,6 +929,121 @@ export default function SettingsDialog({ closing = false }: SettingsDialogProps)
                       <kbd>{item.keys}</kbd>
                     </div>
                   ))}
+                </div>
+              </>
+            )}
+
+            {section === "guide" && (
+              <>
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>文档类型</label>
+                  <div className={styles.guideList}>
+                    <div className={styles.guideItem}>
+                      <b className={styles.guideItemTitle}>常驻文档</b>
+                      <span className={styles.guideItemBody}>
+                        适合长期保存、按分类查找的资料。正文由应用管理，不需要自己去磁盘找文件；
+                        建议在「设置 → 文档库」定期备份。
+                      </span>
+                    </div>
+                    <div className={styles.guideItem}>
+                      <b className={styles.guideItemTitle}>临时文档</b>
+                      <span className={styles.guideItemBody}>
+                        适合随手编辑、查看或转换格式。内容自动保存在临时区，不属于文档库备份；
+                        不再需要时在侧栏删除记录即可。
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>快照与历史</label>
+                  <div className={styles.guideList}>
+                    <div className={styles.guideItem}>
+                      <b className={styles.guideItemTitle}>快照常驻</b>
+                      <span className={styles.guideItemBody}>
+                        打开文档即创建快照，编辑和 AI 修改都在快照上进行；保存只覆盖源文件，快照保留，
+                        不会每次打开重新复制。快照会多占一份空间，但不会污染源文件。
+                      </span>
+                    </div>
+                    <div className={styles.guideItem}>
+                      <b className={styles.guideItemTitle}>版本历史</b>
+                      <span className={styles.guideItemBody}>
+                        版本历史只在保存前保留；文档保存成功后即清空，需要回退请在保存前操作。
+                      </span>
+                    </div>
+                    <div className={styles.guideItem}>
+                      <b className={styles.guideItemTitle}>行号后的琥珀色竖条</b>
+                      <span className={styles.guideItemBody}>
+                        表示该行与源文件不同。悬停可查看「修改前 / 修改后」；保存后基线更新，标记清空。
+                      </span>
+                    </div>
+                    <div className={styles.guideItem}>
+                      <b className={styles.guideItemTitle}>20MiB 以上只读</b>
+                      <span className={styles.guideItemBody}>
+                        超大文件以只读方式打开，不建快照，也不参与改动对比。
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>列选择</label>
+                  <div className={styles.guideList}>
+                    <div className={styles.guideItem}>
+                      <b className={styles.guideItemTitle}>
+                        <kbd className={styles.guideKbd}>Alt</kbd> /{" "}
+                        <kbd className={styles.guideKbd}>Option</kbd>（或{" "}
+                        <kbd className={styles.guideKbd}>Ctrl</kbd>）+ 左键拖动
+                      </b>
+                      <span className={styles.guideItemBody}>
+                        零宽拖动是每行一个光标，可整列插入；横向拖出宽度是块选，可整列替换或删除。
+                        普通点击、<kbd className={styles.guideKbd}>Esc</kbd> 或普通方向键退出列模式。
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>换行符</label>
+                  <div className={styles.guideList}>
+                    <div className={styles.guideItem}>
+                      <b className={styles.guideItemTitle}>状态栏切换</b>
+                      <span className={styles.guideItemBody}>
+                        左键循环 <kbd className={styles.guideKbd}>LF</kbd> →{" "}
+                        <kbd className={styles.guideKbd}>CRLF</kbd> →{" "}
+                        <kbd className={styles.guideKbd}>CR</kbd>，右键弹出列表选择。
+                        新建文档默认 LF（Unix），已有文件保留原格式；切换在保存时才写入。
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>存储占用</label>
+                  <div className={styles.guideList}>
+                    <div className={styles.guideItem}>
+                      <b className={styles.guideItemTitle}>设置 → 文档库</b>
+                      <span className={styles.guideItemBody}>
+                        按源文件、常驻/临时快照、版本历史、AI 记录、回收站展示占用和文件数。
+                        这里只展示，不做清理；文件位置由应用管理，不需要自己去磁盘找。
+                      </span>
+                    </div>
+                  </div>
+                </div>
+
+                <div className={styles.field}>
+                  <label className={styles.fieldLabel}>打开文件</label>
+                  <div className={styles.guideList}>
+                    <div className={styles.guideItem}>
+                      <b className={styles.guideItemTitle}>
+                        <kbd className={styles.guideKbd}>Ctrl+O</kbd>、拖入窗口或系统「打开方式」
+                      </b>
+                      <span className={styles.guideItemBody}>
+                        已打开窗口会自动接管文件；关闭所有标签后回到欢迎页，可打开文件或新建空白文档。
+                        更多快捷键见左侧「快捷键」。
+                      </span>
+                    </div>
+                  </div>
                 </div>
               </>
             )}

@@ -2,7 +2,7 @@
  * 与 Rust 侧一一对应的类型（serde rename_all = camelCase）。
  */
 
-export type LineEnding = "LF" | "CRLF";
+export type LineEnding = "LF" | "CRLF" | "CR";
 
 export interface FileDoc {
   content: string;
@@ -54,6 +54,17 @@ export interface LibraryIndex {
   version: number;
   categories: Category[];
   docs: DocMeta[];
+}
+
+export interface StorageCategory {
+  key: string;
+  bytes: number;
+  files: number;
+}
+
+export interface StorageReport {
+  totalBytes: number;
+  categories: StorageCategory[];
 }
 
 export interface ScratchDoc {

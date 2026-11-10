@@ -37,6 +37,58 @@ const baseTheme = EditorView.theme({
     padding: "0 10px 0 0",
     minWidth: "32px",
   },
+  // 行号后的未保存改动标记
+  ".cm-change-gutter": {
+    width: "6px",
+  },
+  ".cm-change-gutter .cm-gutterElement": {
+    padding: "0",
+  },
+  ".cm-change-gutter-element": {
+    display: "flex",
+    alignItems: "center",
+    justifyContent: "center",
+  },
+  ".cm-change-bar": {
+    display: "block",
+    width: "3px",
+    height: "100%",
+    minHeight: "10px",
+    borderRadius: "2px",
+    backgroundColor: "var(--mod)",
+  },
+  ".cm-change-tip": {
+    maxWidth: "460px",
+    padding: "8px 10px",
+    fontFamily: "var(--sans)",
+    fontSize: "12px",
+    lineHeight: "1.55",
+    color: "var(--fg-2)",
+  },
+  ".cm-change-tip-head": {
+    marginBottom: "6px",
+    color: "var(--fg)",
+    fontWeight: "600",
+  },
+  ".cm-change-tip-label": {
+    marginTop: "6px",
+    color: "var(--fg-3)",
+    fontSize: "11px",
+  },
+  ".cm-change-tip pre": {
+    maxHeight: "160px",
+    margin: "3px 0 0",
+    padding: "6px 8px",
+    overflow: "auto",
+    borderRadius: "5px",
+    background: "var(--code-bg)",
+    color: "var(--fg)",
+    fontFamily: "var(--mono)",
+    fontSize: "11.5px",
+    lineHeight: "1.5",
+    whiteSpace: "pre-wrap",
+    overflowWrap: "anywhere",
+  },
   // 渲染态不显示行号，只留正文。
   "&.cm-md-live .cm-gutters": {
     display: "none",
@@ -70,7 +122,12 @@ const baseTheme = EditorView.theme({
     color: "var(--fg-2)",
   },
   ".cm-cursor, .cm-dropCursor": {
-    borderLeftColor: "var(--accent)",
+    borderLeft: "2px solid var(--accent)",
+    marginLeft: "-1px",
+    borderRadius: "1px",
+  },
+  ".cm-cursor-secondary": {
+    borderLeftColor: "color-mix(in srgb, var(--accent) 55%, transparent)",
   },
   "&.cm-focused .cm-selectionBackground, .cm-selectionBackground, .cm-content ::selection": {
     backgroundColor: "var(--accent-soft)",

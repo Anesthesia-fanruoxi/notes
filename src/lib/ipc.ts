@@ -20,6 +20,7 @@ import type {
   RecoveryMeta,
   RecoverySnap,
   ScratchDoc,
+  StorageReport,
   VersionMeta,
   VersionRestoreResult,
   VersionSnap,
@@ -67,7 +68,7 @@ export const ipc = {
     hasBom: boolean,
     lineEnding: LineEnding,
   ) => call<void>("write_text_file", { path, content, encoding, hasBom, lineEnding }),
-  takeCliArgs: () => call<string[]>("take_cli_args"),
+  takePendingFiles: () => call<string[]>("take_pending_files"),
   fileMtime: (path: string) => call<number | null>("file_mtime", { path }),
   fileInfo: (path: string) => call<FileInfo>("file_info", { path }),
   renameFile: (from: string, to: string) => call<void>("rename_file", { from, to }),
@@ -79,6 +80,7 @@ export const ipc = {
 
   /* 文档库 */
   listLibrary: () => call<LibraryIndex>("list_library"),
+  storageReport: () => call<StorageReport>("storage_report"),
   createDoc: (args: {
     title: string;
     categoryId: string;

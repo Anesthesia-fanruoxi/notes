@@ -17,11 +17,12 @@ import { createEditorState } from "./editor/createEditor";
 import { handleEditorUpdate } from "./editor/handleUpdate";
 import { openFind } from "./editor/search";
 import { putTabState } from "./editor/tabStates";
-import { LARGE_FILE_LIMIT } from "./editor/tiers";
+import { LARGE_FILE_LIMIT, tierFor } from "./editor/tiers";
 import {
   activeTab,
   exportTab,
   openPaths,
+  openPendingFiles,
   pickAndOpenFiles,
   pickDirectory,
   refreshLibrary,
@@ -33,8 +34,8 @@ import { applyGlobalShortcut } from "./lib/globalShortcut";
 import { ipc } from "./lib/ipc";
 import { writePref } from "./lib/prefs";
 import { applyTheme } from "./lib/themes";
-import { addTempTab } from "./lib/scratch";
-import { closeActiveTab, flushBeforeExit } from "./lib/tabActions";
+import { addTempTab, loadSourceBaseline } from "./lib/scratch";
+import { closeActiveTab, flushBeforeExit, flushDirtySnapshots } from "./lib/tabActions";
 import { useAppStore } from "./store/useAppStore";
 import styles from "./styles/app.module.css";
 
@@ -134,10 +135,10 @@ export default function App() {
         const scratches = await ipc.listScratch();
         useAppStore.getState().setScratchDocs(scratches);
         const restoreItems = scratches.slice(0, 10);
-        let restored = 0;
         for (let index = 0; index < restoreItems.length; index += 1) {
           const item = restoreItems[index];
           const name = item.path ? item.path.split(/[\/]/).pop() ?? item.title : item.title;
+          const filename = item.path ? name : `${item.title}.txt`;
           const info = item.path ? await ipc.fileInfo(item.path).catch(() => null) : null;
           if (info && info.sizeBytes > LARGE_FILE_LIMIT) {
             // 旧 scratch 可能是整篇大文件副本：只恢复只读标签，不读副本正文。
@@ -151,7 +152,6 @@ export default function App() {
               sizeBytes: info.sizeBytes,
               readOnlyFile: true,
             });
-            restored += 1;
             updateBoot(
               34 + Math.round(((index + 1) / Math.max(1, restoreItems.length)) * 30),
               restoreItems.length > 1
@@ -162,10 +162,11 @@ export default function App() {
           }
 
           const doc = await ipc.readScratch(item.tabId);
+          const baseline = await loadSourceBaseline(item.path);
           useAppStore.getState().addRestoredTab(item.tabId, {
             title: item.title,
             kind: "temp",
-            filename: name,
+            filename,
             scratchSource: item.source,
             path: item.path ?? undefined,
             encoding: doc.encoding,
@@ -173,23 +174,21 @@ export default function App() {
             lineEnding: doc.lineEnding,
             sizeBytes: doc.sizeBytes,
           });
-          putTabState(item.tabId, createEditorState(doc.content, handleEditorUpdate));
-          restored += 1;
+          putTabState(
+            item.tabId,
+            createEditorState(
+              doc.content,
+              handleEditorUpdate,
+              tierFor(doc.sizeBytes, doc.truncated),
+              baseline,
+            ),
+          );
           updateBoot(
             34 + Math.round(((index + 1) / Math.max(1, restoreItems.length)) * 30),
             restoreItems.length > 1
               ? `正在恢复临时文档 ${index + 1}/${restoreItems.length}…`
               : "正在恢复临时文档…",
           );
-        }
-
-        // 恢复出来的内容接管界面时，把启动时那个空白标签收掉。
-        if (restored > 0) {
-          const state = useAppStore.getState();
-          const blank = state.tabs.find(
-            (tab) => tab.kind === "temp" && !tab.dirty && tab.title.startsWith("未命名"),
-          );
-          if (blank && state.tabs.length > 1) state.closeTab(blank.id);
         }
       } catch (err) {
         console.warn("[scratch] 恢复失败", err);
@@ -212,13 +211,9 @@ export default function App() {
 
       updateBoot(82, "正在打开文件…");
       try {
-        const args = await ipc.takeCliArgs();
-        const files = args.filter((arg) => arg && !arg.startsWith("-"));
-        if (files.length > 0 && !cancelled) {
-          await openPaths(files);
-        }
+        if (!cancelled) await openPendingFiles();
       } catch {
-        // 命令行参数不是必需能力，失败不打扰用户。
+        // 打开外部文件失败不阻塞启动。
       }
 
       completeBoot("准备就绪");
@@ -304,11 +299,10 @@ export default function App() {
     root.style.setProperty("--mono", preset.mono);
   }, [fontPreset]);
 
-  // 只改 CSS 变量，不重建 EditorState。
+  // 行高只影响编辑器；字号缩放由 main.tsx 统一处理。
   useEffect(() => {
-    document.documentElement.style.setProperty("--editor-font-size", `${fontSize}px`);
     document.documentElement.style.setProperty("--editor-line-height", String(lineHeight));
-  }, [fontSize, lineHeight]);
+  }, [lineHeight]);
 
   useEffect(() => {
     writePref("sidebarWidth", sidebarWidth);
@@ -376,7 +370,7 @@ export default function App() {
           break;
         case "n":
           event.preventDefault();
-          addTempTab();
+          void addTempTab();
           break;
         case "p":
           event.preventDefault();
@@ -391,12 +385,13 @@ export default function App() {
           if (event.shiftKey) {
             void (async () => {
               const tab = activeTab();
-              if (tab?.kind === "library" && tab.docId) {
+              if (!tab) return;
+              if (tab.kind === "library" && tab.docId) {
                 const dir = await pickDirectory("导出到文件夹");
                 if (!dir) return;
                 const name = await exportTab(tab.id, dir);
                 if (name) window.alert(`已导出：${name}`);
-              } else if (tab?.readOnlyFile) {
+              } else if (tab.readOnlyFile) {
                 window.alert("大文件以只读方式打开，不能保存为文档。");
               } else {
                 openDialog("save");
@@ -435,6 +430,22 @@ export default function App() {
     return () => window.removeEventListener("keydown", onKeyDown);
   }, [toggleAi, cycleTab, openDialog, toggleLivePreview]);
 
+  // 除各标签自己的自动保存定时器外，失焦 / 隐藏 / 每 5 秒兜底补写脏标签。
+  useEffect(() => {
+    const onBlur = () => flushDirtySnapshots();
+    const onVisibility = () => {
+      if (document.visibilityState === "hidden") flushDirtySnapshots();
+    };
+    const timer = window.setInterval(() => flushDirtySnapshots(), 5000);
+    window.addEventListener("blur", onBlur);
+    document.addEventListener("visibilitychange", onVisibility);
+    return () => {
+      window.removeEventListener("blur", onBlur);
+      document.removeEventListener("visibilitychange", onVisibility);
+      window.clearInterval(timer);
+    };
+  }, []);
+
   // 关闭窗口：默认收进托盘；设置为退出时落快照后直接退出，不弹确认。
   useEffect(() => {
     let disposed = false;
@@ -455,6 +466,7 @@ export default function App() {
 
           if (useAppStore.getState().closeToTray) {
             event.preventDefault();
+            flushDirtySnapshots();
             await win.hide();
             return;
           }
@@ -524,8 +536,8 @@ export default function App() {
       try {
         const { listen } = await import("@tauri-apps/api/event");
         const unlisteners = await Promise.all([
-          listen<string[]>("cli://open", (event) => {
-            void openPaths(event.payload);
+          listen("cli://open", () => {
+            void openPendingFiles();
           }),
           listen("app://new-doc", () => {
             addTempTab();

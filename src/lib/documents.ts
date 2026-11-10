@@ -1,6 +1,7 @@
 import { open } from "@tauri-apps/plugin-dialog";
 
 import { getActiveEditorView, syncPreviewDoc } from "../editor/activeView";
+import { resetChangeBaseline } from "../editor/changeTracking";
 import { createEditorState } from "../editor/createEditor";
 import { handleEditorUpdate } from "../editor/handleUpdate";
 import { cancelScratch } from "../editor/autosave";
@@ -110,11 +111,19 @@ export async function openPaths(paths: string[]): Promise<void> {
   }
 }
 
+/** 取出后端暂存的路径（文件关联、命令行、二次启动转交）并打开。 */
+export async function openPendingFiles(): Promise<void> {
+  const paths = await ipc.takePendingFiles().catch(() => []);
+  if (paths.length > 0) await openPaths(paths);
+}
+
 export async function pickAndOpenFiles(): Promise<void> {
   const picked = await open({
     multiple: true,
     title: "打开文件",
-    filters: [{ name: "文本", extensions: ["txt", "md", "log", "json", "csv", "ts", "js", "py", "go", "rs"] }],
+    filters: [
+      { name: "文本", extensions: ["txt", "md", "log", "json", "csv", "ts", "js", "py", "go", "rs"] },
+    ],
   });
   if (!picked) return;
   const paths = Array.isArray(picked) ? picked : [picked];
@@ -131,17 +140,39 @@ export async function openLibraryDoc(docId: string): Promise<void> {
   const meta = useAppStore.getState().docs.find((doc) => doc.id === docId);
   const doc = await ipc.readDoc(docId);
 
-  // 库内正文只有保存才覆盖；没保存的改动在 recovery 快照里，打开时直接接着改。
+  // 常驻文档始终在快照上编辑：快照不存在时从源文件创建一次，之后一直保留。
+  // 源文件只在保存时覆盖；改动对比用源文件 vs 快照。
+  const snapshot = await ipc.readRecovery(docId).catch(() => null);
   let content = doc.content;
+  let encoding = doc.encoding;
+  let hasBom = doc.hasBom;
+  let lineEnding = doc.lineEnding;
   let draft = false;
-  try {
-    const snapshot = await ipc.readRecovery(docId);
-    if (snapshot && snapshot.content !== doc.content) {
-      content = snapshot.content;
-      draft = true;
+
+  if (snapshot) {
+    const differs =
+      snapshot.content !== doc.content ||
+      snapshot.encoding !== doc.encoding ||
+      snapshot.hasBom !== doc.hasBom ||
+      snapshot.lineEnding !== doc.lineEnding;
+    content = snapshot.content;
+    encoding = snapshot.encoding;
+    hasBom = snapshot.hasBom;
+    lineEnding = snapshot.lineEnding;
+    draft = differs;
+  } else {
+    try {
+      await ipc.saveRecovery({
+        docId,
+        title: meta?.title ?? "未命名",
+        content: doc.content,
+        encoding: doc.encoding,
+        hasBom: doc.hasBom,
+        lineEnding: doc.lineEnding,
+      });
+    } catch (err) {
+      console.warn("[snapshot] 首次创建失败", err);
     }
-  } catch {
-    // 没有快照，按库内正文打开。
   }
 
   const id = useAppStore.getState().addTab({
@@ -149,16 +180,21 @@ export async function openLibraryDoc(docId: string): Promise<void> {
     kind: "library",
     docId,
     filename: meta ? displayFileName(meta.title, meta.extension) : undefined,
-    encoding: doc.encoding,
-    hasBom: doc.hasBom,
-    lineEnding: doc.lineEnding,
+    encoding,
+    hasBom,
+    lineEnding,
     sizeBytes: doc.sizeBytes,
     truncated: doc.truncated,
     dirty: draft,
   });
   putTabState(
     id,
-    createEditorState(content, handleEditorUpdate, tierFor(doc.sizeBytes, doc.truncated)),
+    createEditorState(
+      content,
+      handleEditorUpdate,
+      tierFor(doc.sizeBytes, doc.truncated),
+      doc.content,
+    ),
   );
   useAppStore.getState().updateTab(id, { dirty: draft });
 }
@@ -185,16 +221,31 @@ export async function saveLibraryTab(tabId: string): Promise<void> {
   }
 
   const content = readTabContent(tabId);
+  const current = useAppStore.getState().tabs.find((item) => item.id === tabId) ?? tab;
+
+  // 保存前先把工作快照同步到当前正文：即使随后写源文件失败，快照也不丢。
+  try {
+    await ipc.saveRecovery({
+      docId: tab.docId,
+      title: current.title,
+      content,
+      encoding: current.encoding,
+      hasBom: current.hasBom,
+      lineEnding: current.lineEnding,
+    });
+  } catch (err) {
+    console.warn("[snapshot] 保存前同步失败", err);
+  }
+
   const meta = await ipc.writeDoc(
     tab.docId,
     content,
-    tab.encoding,
-    tab.hasBom,
-    tab.lineEnding,
+    current.encoding,
+    current.hasBom,
+    current.lineEnding,
   );
-  // 写回成功，恢复快照已无意义（Rust 侧也会删，这里再兜一次在途写入）。
+  resetChangeBaseline(tabId, content);
   stopRecovery(tabId);
-  void ipc.dropRecovery(tab.docId).catch(() => undefined);
   useAppStore.getState().updateTab(tabId, {
     dirty: false,
     sizeBytes: meta.sizeBytes,
@@ -257,6 +308,7 @@ export async function saveTempFile(tabId: string): Promise<void> {
   }
 
   cancelScratch(tabId);
+  resetChangeBaseline(tabId, content);
   const mtime = await ipc.fileMtime(path).catch(() => null);
   useAppStore.getState().updateTab(tabId, {
     path,
@@ -292,6 +344,7 @@ export async function restoreDeletedFile(tabId: string): Promise<void> {
 
   const content = readTabContent(tabId);
   await ipc.writeTextFile(tab.path, content, tab.encoding, tab.hasBom, tab.lineEnding);
+  resetChangeBaseline(tabId, content);
   const mtime = await ipc.fileMtime(tab.path).catch(() => null);
   useAppStore.getState().updateTab(tabId, {
     dirty: false,
@@ -410,6 +463,7 @@ export async function saveTempToLibrary(
     sizeBytes: meta.sizeBytes,
   });
   cancelScratch(tabId);
+  resetChangeBaseline(tabId, content);
   await ipc.dropScratch(tabId).catch(() => undefined);
   await refreshScratch();
   await refreshLibrary();

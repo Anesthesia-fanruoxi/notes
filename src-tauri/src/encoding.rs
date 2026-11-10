@@ -71,9 +71,11 @@ pub fn write(
 }
 
 pub fn encode(content: &str, encoding: &str, has_bom: bool, line_ending: &str) -> Vec<u8> {
-    let normalized = content.replace("\r\n", "\n");
+    let normalized = content.replace("\r\n", "\n").replace('\r', "\n");
     let text = if line_ending.eq_ignore_ascii_case("CRLF") {
         normalized.replace('\n', "\r\n")
+    } else if line_ending.eq_ignore_ascii_case("CR") {
+        normalized.replace('\n', "\r")
     } else {
         normalized
     };
@@ -159,9 +161,11 @@ fn try_decode(bytes: &[u8], encoding: &'static Encoding) -> Option<String> {
 
 fn detect_line_ending(content: &str) -> String {
     let crlf = content.matches("\r\n").count();
-    let lf_total = content.matches('\n').count();
-    let lf_only = lf_total.saturating_sub(crlf);
-    if crlf > 0 && crlf >= lf_only {
+    let lf_only = content.matches('\n').count().saturating_sub(crlf);
+    let cr_only = content.matches('\r').count().saturating_sub(crlf);
+    if cr_only > crlf && cr_only > lf_only {
+        "CR".to_string()
+    } else if crlf > 0 && crlf >= lf_only {
         "CRLF".to_string()
     } else {
         "LF".to_string()
@@ -214,5 +218,13 @@ mod tests {
     fn mixed_newlines_pick_majority() {
         assert_eq!(detect_line_ending("a\r\nb\nc\r\n"), "CRLF");
         assert_eq!(detect_line_ending("a\nb\nc\r\n"), "LF");
+        assert_eq!(detect_line_ending("a\rb\rc"), "CR");
+    }
+
+    #[test]
+    fn write_roundtrip_cr() {
+        let bytes = encode("a\r\nb\rc\n", "UTF-8", false, "CR");
+        assert_eq!(bytes.as_slice(), b"a\rb\rc\r");
+        assert_eq!(detect_line_ending(std::str::from_utf8(&bytes).unwrap()), "CR");
     }
 }

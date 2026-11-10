@@ -34,6 +34,7 @@
   --s-prop: #1f6feb;
   --s-tag: #cf222e;
 
+  /* 编辑器基准字号；整个界面的大小由 WebView 缩放控制。 */
   --editor-font-size: 13px;
   --editor-line-height: 1.7;
 

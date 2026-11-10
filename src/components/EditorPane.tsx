@@ -10,6 +10,8 @@ import { EditorView } from "@codemirror/view";
 
 import LargeFileViewer from "./LargeFileViewer";
 import MarkdownOutline from "./MarkdownOutline";
+import WelcomePane from "./WelcomePane";
+
 import {
   markViewTab,
   setActiveEditorView,
@@ -289,10 +291,10 @@ export default function EditorPane() {
 
   // 切换源码 / 预览：焦点交给当前可见的那一侧。
   useEffect(() => {
-    if (isReadOnly) return;
+    if (!activeTabId || isReadOnly) return;
     if (hasPreview && livePreview) previewViewRef.current?.focus();
     else viewRef.current?.focus();
-  }, [hasPreview, livePreview, isReadOnly]);
+  }, [activeTabId, hasPreview, livePreview, isReadOnly]);
 
   // 左右显隐后重新测量，隐藏期间 CodeMirror 量不到正确宽度。
   useEffect(() => {
@@ -676,9 +678,14 @@ export default function EditorPane() {
           </div>
         )
       )}
+      {!activeTab && <WelcomePane />}
       <div
         className={styles.editorSplit}
-        style={isReadOnly ? { display: "none" } : undefined}
+        style={
+          isReadOnly || !activeTab
+            ? { display: "none" }
+            : undefined
+        }
       >
         {previewMounted && (
           <div

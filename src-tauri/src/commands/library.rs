@@ -55,7 +55,7 @@ pub fn write_doc(
     line_ending: String,
 ) -> Result<DocMeta, String> {
     let (paths, mut index) = library::load_index(&app)?;
-    library::write_doc(
+    let meta = library::write_doc(
         &paths,
         &mut index,
         &doc_id,
@@ -63,7 +63,16 @@ pub fn write_doc(
         &encoding,
         has_bom,
         &line_ending,
-    )
+    )?;
+    // 保存成功即清空该文档的版本历史。
+    library::clear_versions(&paths, &doc_id);
+    Ok(meta)
+}
+
+#[tauri::command]
+pub fn storage_report(app: AppHandle) -> Result<library::StorageReport, String> {
+    let paths = library::WorkspacePaths::resolve(&app)?;
+    Ok(library::storage_report(&paths))
 }
 
 #[tauri::command]

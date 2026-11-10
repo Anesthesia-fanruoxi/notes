@@ -6,6 +6,7 @@ mod library;
 mod usage;
 
 use std::path::Path;
+use std::sync::Mutex;
 use std::time::Duration;
 
 use tauri::menu::{Menu, MenuItem};
@@ -69,6 +70,48 @@ fn collect_file_args<I: IntoIterator<Item = String>>(args: I) -> Vec<String> {
         .collect()
 }
 
+/// 文件关联/命令行送来的路径先入队，前端启动后或收到通知时来取。
+/// macOS 的 Finder 打开走 RunEvent::Opened，Windows 走 argv 与单实例转交。
+#[derive(Default)]
+struct PendingOpenFiles(Mutex<Vec<String>>);
+
+fn queue_open_files(app: &AppHandle, paths: Vec<String>) {
+    if paths.is_empty() {
+        return;
+    }
+    app.state::<PendingOpenFiles>()
+        .0
+        .lock()
+        .unwrap_or_else(|err| err.into_inner())
+        .extend(paths);
+    let _ = app.emit("cli://open", ());
+}
+
+#[tauri::command]
+fn take_pending_files(state: tauri::State<'_, PendingOpenFiles>) -> Vec<String> {
+    std::mem::take(&mut *state.0.lock().unwrap_or_else(|err| err.into_inner()))
+}
+
+fn handle_run_event(app: &AppHandle, event: tauri::RunEvent) {
+    #[cfg(target_os = "macos")]
+    {
+        if let tauri::RunEvent::Opened { urls } = event {
+            let paths = urls
+                .into_iter()
+                .filter_map(|url| url.to_file_path().ok())
+                .filter(|path| path.is_file())
+                .map(|path| path.to_string_lossy().into_owned())
+                .collect::<Vec<_>>();
+            focus_main(app);
+            queue_open_files(app, paths);
+        }
+    }
+    #[cfg(not(target_os = "macos"))]
+    {
+        let _ = (app, event);
+    }
+}
+
 fn toggle_main(app: &AppHandle) {
     if let Some(window) = app.get_webview_window("main") {
         let visible = window.is_visible().unwrap_or(false);
@@ -129,14 +172,12 @@ fn quit_app(app: AppHandle) {
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
-    tauri::Builder::default()
+    let app = tauri::Builder::default()
+        .manage(PendingOpenFiles::default())
         // 单实例必须最先注册：二启时转发文件参数并聚焦已有窗口。
         .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
             focus_main(app);
-            let paths = collect_file_args(argv);
-            if !paths.is_empty() {
-                let _ = app.emit("cli://open", paths);
-            }
+            queue_open_files(app, collect_file_args(argv));
         }))
         // 不记忆 VISIBLE：关闭到托盘时窗口是隐藏的，记下来会导致下次启动看不见。
         // 主窗口由 setup 手动恢复状态后再显示，避免先出现默认尺寸再跳到保存尺寸。
@@ -152,6 +193,10 @@ pub fn run() {
         .setup(|app| {
             // 首启时把库目录骨架建好，后续命令直接按约定路径读写。
             library::ensure_layout(app.handle()).map_err(std::io::Error::other)?;
+            if let Ok(paths) = library::WorkspacePaths::resolve(app.handle()) {
+                library::prune_legacy_large_scratch(&paths, library::LARGE_FILE_LIMIT);
+            }
+            queue_open_files(app.handle(), collect_file_args(std::env::args()));
             usage::prune(app.handle());
             setup_tray(app)?;
             setup_window_state_persist(app.handle().clone());
@@ -173,8 +218,9 @@ pub fn run() {
             commands::fs::file_info,
             commands::fs::large_file_open,
             commands::fs::large_file_lines,
-            commands::fs::take_cli_args,
+            take_pending_files,
             commands::library::list_library,
+            commands::library::storage_report,
             commands::library::create_doc,
             commands::library::read_doc,
             commands::library::write_doc,
@@ -218,6 +264,8 @@ pub fn run() {
             usage::ai_usage_records,
             quit_app,
         ])
-        .run(tauri::generate_context!())
-        .expect("error while running tauri application");
+        .build(tauri::generate_context!())
+        .expect("error while building tauri application");
+
+    app.run(handle_run_event);
 }

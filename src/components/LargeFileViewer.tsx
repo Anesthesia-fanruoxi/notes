@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 
 import { ipc } from "../lib/ipc";
 import type { LargeFileMeta } from "../lib/types";
-import { useAppStore } from "../store/useAppStore";
+import { DEFAULT_FONT_SIZE, useAppStore } from "../store/useAppStore";
 import styles from "../styles/app.module.css";
 
 /** 浏览器能稳定承载的滚动高度上限；超过后按比例映射到行号。 */
@@ -33,9 +33,9 @@ export default function LargeFileViewer({ tabId, path }: Props) {
   const anchorRef = useRef(0);
   const rowHeightRef = useRef(0);
 
-  const fontSize = useAppStore((s) => s.fontSize);
   const lineHeight = useAppStore((s) => s.lineHeight);
-  const rowHeight = Math.max(14, Math.round(fontSize * lineHeight));
+  // 行高按编辑器 CSS 基准字号计算；整页缩放会同步放大，不能再用字号设置重复乘算。
+  const rowHeight = Math.max(14, Math.round(DEFAULT_FONT_SIZE * lineHeight));
 
   const [meta, setMeta] = useState<LargeFileMeta | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -191,7 +191,7 @@ export default function LargeFileViewer({ tabId, path }: Props) {
   const windowTop = Math.max(0, anchorTop - (anchorLine - windowFrom) * rowHeight);
   const gutterWidth = Math.max(
     44,
-    String(Math.max(1, totalLines)).length * Math.ceil(fontSize * 0.62) + 18,
+    String(Math.max(1, totalLines)).length * Math.ceil(DEFAULT_FONT_SIZE * 0.62) + 18,
   );
 
   return (

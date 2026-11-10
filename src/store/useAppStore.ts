@@ -29,7 +29,14 @@ export type DialogName =
   | "settings"
   | "versions"
   | "quickopen";
-export type SettingsSection = "general" | "ai" | "usage" | "editor" | "library" | "shortcuts";
+export type SettingsSection =
+  | "general"
+  | "ai"
+  | "usage"
+  | "editor"
+  | "library"
+  | "shortcuts"
+  | "guide";
 
 export interface TabMeta {
   id: string;
@@ -64,6 +71,9 @@ export interface TabMeta {
 }
 
 export const FONT_SIZES = Array.from({ length: 25 }, (_, index) => index + 8);
+
+/** 编辑器基准字号；界面用 WebView 缩放跟随「字号」设置。 */
+export const DEFAULT_FONT_SIZE = 13;
 
 export interface TabInit {
   title: string;
@@ -134,9 +144,11 @@ interface AppState {
   updateTab: (id: string, patch: Partial<TabMeta>) => void;
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
+  moveTab: (sourceId: string, targetId: string, position: "before" | "after") => void;
   cycleTab: (delta: number) => void;
   markDirty: (id: string, dirty?: boolean) => void;
   setLanguageOverride: (id: string, override: string | undefined) => void;
+  setLineEnding: (id: string, lineEnding: LineEnding) => void;
   setLanguageLabel: (id: string, label: string) => void;
 
   setLibrary: (categories: Category[], docs: DocMeta[]) => void;
@@ -168,8 +180,6 @@ interface AppState {
   setEditorBackground: (value: string) => void;
 }
 
-const firstTabId = newTabId();
-
 function makeTab(init: TabInit, id: string): TabMeta {
   return {
     id,
@@ -192,8 +202,8 @@ function makeTab(init: TabInit, id: string): TabMeta {
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
-  tabs: [makeTab({ title: "未命名-1" }, firstTabId)],
-  activeTabId: firstTabId,
+  tabs: [],
+  activeTabId: null,
 
   categories: [],
   docs: [],
@@ -215,7 +225,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const stored = readPref<string>("fontPreset", DEFAULT_FONT_PRESET);
     return isFontPresetId(stored) ? stored : DEFAULT_FONT_PRESET;
   })(),
-  fontSize: clamp(readPref("fontSize", 13), 8, 32),
+  fontSize: clamp(readPref("fontSize", DEFAULT_FONT_SIZE), 8, 32),
   lineHeight: readPref("lineHeight", 1.7),
   editorBackground: readPref("editorBackground", "theme"),
 
@@ -239,7 +249,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   addRestoredTab: (id, init) => {
     set((s) => {
       if (s.tabs.some((tab) => tab.id === id)) return s;
-      return { tabs: [...s.tabs, makeTab(init, id)] };
+      return {
+        tabs: [...s.tabs, makeTab(init, id)],
+        activeTabId: s.activeTabId ?? id,
+      };
     });
   },
 
@@ -253,11 +266,12 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       const tabs = s.tabs.filter((t) => t.id !== id);
       if (tabs.length === 0) {
-        const freshId = newTabId();
         return {
-          tabs: [makeTab({ title: "未命名-1" }, freshId)],
-          activeTabId: freshId,
+          tabs: [],
+          activeTabId: null,
           docSize: 0,
+          cursor: { line: 1, col: 1 },
+          selectionChars: 0,
         };
       }
 
@@ -268,6 +282,17 @@ export const useAppStore = create<AppState>((set, get) => ({
   },
 
   setActiveTab: (id) => set({ activeTabId: id }),
+
+  moveTab: (sourceId, targetId, position) =>
+    set((s) => {
+      const fromIndex = s.tabs.findIndex((tab) => tab.id === sourceId);
+      if (fromIndex === -1 || sourceId === targetId) return s;
+      const tabs = s.tabs.filter((tab) => tab.id !== sourceId);
+      const targetIndex = tabs.findIndex((tab) => tab.id === targetId);
+      if (targetIndex === -1) return s;
+      tabs.splice(targetIndex + (position === "after" ? 1 : 0), 0, s.tabs[fromIndex]);
+      return { tabs };
+    }),
 
   cycleTab: (delta) => {
     const { tabs, activeTabId } = get();
@@ -289,6 +314,15 @@ export const useAppStore = create<AppState>((set, get) => ({
   setLanguageOverride: (id, override) =>
     set((s) => ({
       tabs: s.tabs.map((tab) => (tab.id === id ? { ...tab, languageOverride: override } : tab)),
+    })),
+
+  setLineEnding: (id, lineEnding) =>
+    set((s) => ({
+      tabs: s.tabs.map((tab) =>
+        tab.id === id && tab.lineEnding !== lineEnding
+          ? { ...tab, lineEnding, dirty: true }
+          : tab,
+      ),
     })),
 
   setLanguageLabel: (id, label) => {

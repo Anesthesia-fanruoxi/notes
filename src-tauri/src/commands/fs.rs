@@ -81,9 +81,3 @@ pub async fn large_file_lines(
     .await
     .map_err(|e| format!("大文件任务失败：{e}"))?
 }
-
-/// 启动参数里第一个存在的文件会由前端拿去当临时文档打开。
-#[tauri::command]
-pub fn take_cli_args() -> Vec<String> {
-    std::env::args().skip(1).collect()
-}

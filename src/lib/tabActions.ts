@@ -49,6 +49,29 @@ export function closeActiveTab(): void {
   if (id) requestCloseTab(id);
 }
 
+/** 批量关闭：逐个补写快照后关闭；可指定关闭后的活动标签。 */
+export async function closeTabs(ids: string[], activateId?: string): Promise<void> {
+  for (const id of ids) {
+    if (!useAppStore.getState().tabs.some((tab) => tab.id === id)) continue;
+    await confirmCloseTab(id);
+  }
+  if (
+    activateId &&
+    useAppStore.getState().tabs.some((tab) => tab.id === activateId)
+  ) {
+    useAppStore.getState().setActiveTab(activateId);
+  }
+}
+
+/** 失焦 / 定时兜底：只补写有未保存改动的标签。 */
+export function flushDirtySnapshots(): void {
+  for (const tab of useAppStore.getState().tabs) {
+    if (!tab.dirty || tab.readOnlyFile) continue;
+    if (tab.kind === "temp") void flushScratchNow(tab.id);
+    else void flushRecoveryNow(tab.id);
+  }
+}
+
 /**
  * 退出应用：所有未保存的改动都落快照，不弹确认。
  * 下次打开文档时直接接着改（临时文件同理）。

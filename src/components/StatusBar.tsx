@@ -3,12 +3,20 @@ import { useEffect, useRef, useState } from "react";
 
 import { commonLanguages, PLAIN_TEXT } from "../editor/languages";
 import { isMarkdownTab } from "../lib/format";
+import type { LineEnding } from "../lib/types";
 import { FONT_SIZES, useAppStore } from "../store/useAppStore";
 import styles from "../styles/app.module.css";
 import FontFamilySwitcher from "./FontFamilySwitcher";
 import ThemeSwitcher from "./ThemeSwitcher";
+import ContextMenu, { type MenuItem } from "./ContextMenu";
 
 const FONT_MENU_WIDTH = 112;
+
+const EOL_OPTIONS: Array<{ value: LineEnding; label: string }> = [
+  { value: "LF", label: "整篇转换为 LF（Unix，默认）" },
+  { value: "CRLF", label: "整篇转换为 CRLF（Windows/DOS）" },
+  { value: "CR", label: "整篇转换为 CR（旧版 Mac）" },
+];
 
 function formatSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
@@ -31,15 +39,18 @@ export default function StatusBar() {
   const toggleLivePreview = useAppStore((s) => s.toggleLivePreview);
   const setFontSize = useAppStore((s) => s.setFontSize);
   const setLanguageOverride = useAppStore((s) => s.setLanguageOverride);
+  const setLineEnding = useAppStore((s) => s.setLineEnding);
   const openDialog = useAppStore((s) => s.openDialog);
 
   const activeTab = tabs.find((tab) => tab.id === activeTabId);
   const activeDoc = activeTab?.docId ? docs.find((doc) => doc.id === activeTab.docId) : undefined;
   const languageValue = activeTab?.languageOverride ?? "auto";
   const autoLabel = activeTab?.languageLabel ?? "纯文本";
-  const categoryName = activeDoc
-    ? categories.find((category) => category.id === activeDoc.categoryId)?.name ?? "未分类"
-    : "临时";
+  const categoryName = !activeTab
+    ? "未打开文档"
+    : activeDoc
+      ? (categories.find((category) => category.id === activeDoc.categoryId)?.name ?? "未分类")
+      : "临时";
   const isMarkdown = isMarkdownTab(activeTab);
   const isReadOnly = activeTab?.readOnlyFile === true;
 
@@ -48,6 +59,7 @@ export default function StatusBar() {
     bottom: number;
     maxHeight: number;
   } | null>(null);
+  const [eolMenu, setEolMenu] = useState<{ x: number; y: number } | null>(null);
   const [fontMenuClosing, setFontMenuClosing] = useState(false);
   const [fontPulse, setFontPulse] = useState(false);
   const fontButtonRef = useRef<HTMLButtonElement>(null);
@@ -132,6 +144,13 @@ export default function StatusBar() {
     fontPulseTimer.current = window.setTimeout(() => setFontPulse(false), 220);
   };
 
+  const cycleLineEnding = () => {
+    if (!activeTab || isReadOnly) return;
+    const index = EOL_OPTIONS.findIndex((option) => option.value === activeTab.lineEnding);
+    const next = EOL_OPTIONS[(index + 1) % EOL_OPTIONS.length] ?? EOL_OPTIONS[0];
+    setLineEnding(activeTab.id, next.value);
+  };
+
   return (
     <footer className={styles.status}>
       <span className={styles.statusItem} title="所属分类">
@@ -141,7 +160,37 @@ export default function StatusBar() {
 
       <span className={styles.statusItem}>{activeTab?.encoding ?? "UTF-8"}</span>
       <span className={styles.sep} />
-      <span className={styles.statusItem}>{activeTab?.lineEnding ?? "LF"}</span>
+      <button
+        type="button"
+        className={clsx(styles.statusItem, styles.statusClickable)}
+        disabled={!activeTab || isReadOnly}
+        aria-haspopup="menu"
+        aria-expanded={eolMenu !== null}
+        aria-label="换行符（左键切换，右键选择）"
+        title={
+          !activeTab
+            ? "打开或新建文档后可转换换行符"
+            : isReadOnly
+              ? "大文件只读模式不支持转换换行符"
+              : "整篇换行符：左键循环切换，右键选择（LF = Unix 默认，CRLF = Windows/DOS，CR = 旧版 Mac；保存时写盘）"
+        }
+        onClick={cycleLineEnding}
+        onContextMenu={(event) => {
+          event.preventDefault();
+          if (!activeTab || isReadOnly) return;
+          setEolMenu({ x: event.clientX, y: event.clientY });
+        }}
+        onKeyDown={(event) => {
+          if (!activeTab || isReadOnly) return;
+          if (event.key === "ContextMenu" || (event.shiftKey && event.key === "F10")) {
+            event.preventDefault();
+            const rect = event.currentTarget.getBoundingClientRect();
+            setEolMenu({ x: rect.left, y: rect.top - 6 });
+          }
+        }}
+      >
+        {activeTab?.lineEnding ?? "LF"}
+      </button>
       <span className={styles.sep} />
       {isReadOnly && (
         <>
@@ -158,11 +207,13 @@ export default function StatusBar() {
       <select
         className={clsx(styles.statusItem, styles.statusSelect)}
         value={languageValue}
-        disabled={isReadOnly}
+        disabled={!activeTab || isReadOnly}
         title={
-          isReadOnly
-            ? "大文件只读模式不支持切换语言"
-            : "语言：影响高亮，保存时同步文件后缀（仅当前标签）"
+          !activeTab
+            ? "打开或新建文档后可选择语言"
+            : isReadOnly
+              ? "大文件只读模式不支持切换语言"
+              : "语言：影响高亮，保存时同步文件后缀（仅当前标签）"
         }
         onChange={(event) => {
           if (!activeTab) return;
@@ -314,6 +365,24 @@ export default function StatusBar() {
             );
           })}
         </div>
+      )}
+
+      {eolMenu && (
+        <ContextMenu
+          x={eolMenu.x}
+          y={eolMenu.y}
+          items={EOL_OPTIONS.map<MenuItem>((option) => ({
+            label:
+              option.value === (activeTab?.lineEnding ?? "LF")
+                ? `${option.label}（当前）`
+                : option.label,
+            onSelect: () => {
+              if (!activeTab) return;
+              setLineEnding(activeTab.id, option.value);
+            },
+          }))}
+          onClose={() => setEolMenu(null)}
+        />
       )}
     </footer>
   );

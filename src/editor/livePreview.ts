@@ -303,10 +303,9 @@ const TABLE_PADDING = 12;
 
 /** 按当前编辑器字号估算表格行高：字号是 CSS 变量，滚动定位前读一次即可。 */
 function estimateTableRowHeight(): number {
-  const root = document.documentElement;
-  const size = Number.parseFloat(root.style.getPropertyValue("--editor-font-size")) || 13;
-  const lineHeight =
-    Number.parseFloat(root.style.getPropertyValue("--editor-line-height")) || 1.7;
+  const root = getComputedStyle(document.documentElement);
+  const size = Number.parseFloat(root.getPropertyValue("--editor-font-size")) || 13;
+  const lineHeight = Number.parseFloat(root.getPropertyValue("--editor-line-height")) || 1.7;
   return size * 0.92 * lineHeight + 11;
 }
 

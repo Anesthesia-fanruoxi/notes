@@ -27,6 +27,7 @@
     "@tauri-apps/plugin-store": "^2.5.0",
     "clsx": "^2.1.1",
     "codemirror": "^6.0.2",
+    "diff": "^9.0.0",
     "react": "^19.1.0",
     "react-dom": "^19.1.0",
     "zustand": "^5.0.16"

@@ -7,8 +7,26 @@ import { createEditorState } from "./editor/createEditor";
 import { handleEditorUpdate } from "./editor/handleUpdate";
 import { openFind } from "./editor/search";
 import { putTabState, tabStateCount } from "./editor/tabStates";
-import { useAppStore } from "./store/useAppStore";
+import { DEFAULT_FONT_SIZE, useAppStore } from "./store/useAppStore";
 import "./styles/global.css";
+
+// 「字号」同时缩放整个界面：编辑器按 13px 基准排版，由 WebView 原生缩放放大。
+const applyUiZoom = (fontSize: number) => {
+  void import("@tauri-apps/api/webview")
+    .then(({ getCurrentWebview }) => {
+      document.documentElement.style.removeProperty("--editor-font-size");
+      return getCurrentWebview().setZoom(fontSize / DEFAULT_FONT_SIZE);
+    })
+    .catch(() => {
+      // 浏览器预览没有 Tauri WebView，退回只缩放编辑器正文。
+      document.documentElement.style.setProperty("--editor-font-size", `${fontSize}px`);
+    });
+};
+
+applyUiZoom(useAppStore.getState().fontSize);
+useAppStore.subscribe((state, prev) => {
+  if (state.fontSize !== prev.fontSize) applyUiZoom(state.fontSize);
+});
 
 if (import.meta.env.DEV) {
   const devWindow = window as unknown as Record<string, unknown>;

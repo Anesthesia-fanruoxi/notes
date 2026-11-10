@@ -1,7 +1,7 @@
 import { createEditorState } from "../editor/createEditor";
 import { handleEditorUpdate } from "../editor/handleUpdate";
 import { dropTabState, putTabState } from "../editor/tabStates";
-import { LARGE_FILE_LIMIT } from "../editor/tiers";
+import { LARGE_FILE_LIMIT, tierFor } from "../editor/tiers";
 import { useAppStore } from "../store/useAppStore";
 import { forgetTempAiState } from "./ai";
 import { ipc } from "./ipc";
@@ -20,12 +20,24 @@ export async function refreshScratch(): Promise<void> {
   }
 }
 
+/** 源文件是改动对比基线；新建但从未保存的临时文档没有源文件，返回空串。 */
+export async function loadSourceBaseline(
+  path: string | null | undefined,
+): Promise<string> {
+  if (!path) return "";
+  try {
+    return (await ipc.readTextFile(path)).content;
+  } catch {
+    return "";
+  }
+}
+
 function baseName(path: string): string {
   const index = Math.max(path.lastIndexOf("/"), path.lastIndexOf("\\"));
   return index >= 0 ? path.slice(index + 1) : path;
 }
 
-/** + / Ctrl+N：立刻在临时目录落一个空文件，侧栏马上能看到记录。 */
+/** + / Ctrl+N 的默认文本：立刻在临时目录落一个 .txt 空文件，侧栏马上能看到记录。 */
 export function addTempTab(): string {
   const state = useAppStore.getState();
   const used = new Set(state.tabs.map((tab) => tab.title));
@@ -34,7 +46,11 @@ export function addTempTab(): string {
   while (used.has(`未命名-${index}`)) index += 1;
   const title = `未命名-${index}`;
 
-  const id = state.addTab({ title, scratchSource: "new" });
+  const id = state.addTab({
+    title,
+    filename: `${title}.txt`,
+    scratchSource: "new",
+  });
   void ipc
     .saveScratch({
       tabId: id,
@@ -85,10 +101,11 @@ export async function openScratchRecord(record: ScratchDoc): Promise<void> {
 
     const doc = await ipc.readScratch(record.tabId);
     const mtime = record.path ? await ipc.fileMtime(record.path).catch(() => null) : null;
+    const baseline = await loadSourceBaseline(record.path);
     useAppStore.getState().addRestoredTab(record.tabId, {
       title: record.title,
       kind: "temp",
-      filename: record.path ? baseName(record.path) : record.title,
+      filename: record.path ? baseName(record.path) : `${record.title}.txt`,
       scratchSource: record.source,
       path: record.path ?? undefined,
       diskMtime: mtime ?? undefined,
@@ -99,7 +116,15 @@ export async function openScratchRecord(record: ScratchDoc): Promise<void> {
       sizeBytes: doc.sizeBytes,
       truncated: doc.truncated,
     });
-    putTabState(record.tabId, createEditorState(doc.content, handleEditorUpdate));
+    putTabState(
+      record.tabId,
+      createEditorState(
+        doc.content,
+        handleEditorUpdate,
+        tierFor(doc.sizeBytes, doc.truncated),
+        baseline,
+      ),
+    );
     useAppStore.getState().setActiveTab(record.tabId);
   } catch (err) {
     window.alert(err instanceof Error ? err.message : "打开临时文件失败");
