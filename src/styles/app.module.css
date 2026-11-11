@@ -1806,6 +1806,32 @@
   border-top: 1px solid var(--border);
 }
 
+.aiWriteRow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-bottom: 6px;
+  color: var(--fg-3);
+  font-size: 10.5px;
+  white-space: nowrap;
+}
+
+.aiWriteRow label {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  color: var(--fg-2);
+}
+
+.aiWriteRow input {
+  accent-color: var(--accent);
+}
+
+.aiWriteRow span {
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
 .aiBox {
   display: flex;
   align-items: flex-end;
@@ -1820,8 +1846,11 @@
   flex: 1;
   min-width: 0;
   height: 22px;
-  max-height: 88px;
+  min-height: 22px;
+  /* 8 行 × 20px 行高 + 上下 padding；超出后由脚本切换为内部滚动。 */
+  max-height: 162px;
   padding: 1px 0;
+  overflow-y: hidden;
   border: 0;
   outline: none;
   resize: none;
@@ -3319,11 +3348,6 @@
   text-overflow: ellipsis;
 }
 
-.ctxNum {
-  font-family: var(--mono);
-  font-size: 10px;
-}
-
 .ctxToggle {
   margin-left: auto;
   display: flex;
@@ -3417,6 +3441,154 @@
   line-height: 1.65;
   white-space: pre-wrap;
   word-break: break-word;
+}
+
+/* AI 回复按 Markdown 渲染；用户消息仍用上面的纯文本样式。 */
+.msgMarkdown {
+  color: var(--fg);
+  font-family: var(--sans);
+  font-size: 12px;
+  line-height: 1.7;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.msgMarkdown > :first-child {
+  margin-top: 0;
+}
+
+.msgMarkdown > :last-child {
+  margin-bottom: 0;
+}
+
+.msgMarkdown h1,
+.msgMarkdown h2,
+.msgMarkdown h3,
+.msgMarkdown h4 {
+  margin: 0.8em 0 0.35em;
+  font-weight: 600;
+  line-height: 1.4;
+}
+
+.msgMarkdown h1 {
+  font-size: 1.3em;
+}
+
+.msgMarkdown h2 {
+  font-size: 1.18em;
+}
+
+.msgMarkdown h3 {
+  font-size: 1.08em;
+}
+
+.msgMarkdown h4 {
+  font-size: 1em;
+}
+
+.msgMarkdown p {
+  margin: 0.45em 0;
+  white-space: pre-wrap;
+}
+
+.msgMarkdown ul,
+.msgMarkdown ol {
+  margin: 0.4em 0;
+  padding-left: 18px;
+}
+
+.msgMarkdown .msgList {
+  margin: 0.4em 0;
+  padding-left: 0;
+  list-style: none;
+}
+
+.msgMarkdown .msgListItem {
+  display: flex;
+  gap: 6px;
+  margin: 0.15em 0;
+}
+
+.msgMarkdown .msgListMark {
+  flex: 0 0 auto;
+  min-width: 18px;
+  color: var(--fg-3);
+  font-family: var(--mono);
+  font-size: 0.92em;
+}
+
+.msgMarkdown li {
+  margin: 0.15em 0;
+}
+
+.msgMarkdown code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--side);
+  color: var(--s-str);
+  font-family: var(--mono);
+  font-size: 0.92em;
+}
+
+.msgMarkdown pre {
+  max-height: 320px;
+  margin: 0.55em 0;
+  padding: 8px 10px;
+  overflow: auto;
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: var(--side);
+}
+
+.msgMarkdown pre code {
+  padding: 0;
+  background: transparent;
+  color: var(--fg);
+  font-size: 11px;
+  line-height: 1.6;
+  white-space: pre;
+}
+
+.msgMarkdown blockquote {
+  margin: 0.55em 0;
+  padding: 0.1em 0 0.1em 10px;
+  border-left: 2px solid var(--border-2);
+  color: var(--fg-2);
+  white-space: pre-wrap;
+}
+
+.msgMarkdown a {
+  color: var(--accent);
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+
+.msgMarkdown hr {
+  margin: 0.9em 0;
+  border: 0;
+  border-top: 1px solid var(--border);
+}
+
+.msgMarkdown table {
+  width: 100%;
+  margin: 0.55em 0;
+  border-collapse: collapse;
+  table-layout: fixed;
+  font-size: 11px;
+}
+
+.msgMarkdown th,
+.msgMarkdown td {
+  padding: 4px 6px;
+  border: 1px solid var(--border);
+  text-align: left;
+  overflow-wrap: anywhere;
+  word-break: break-word;
+}
+
+.msgMarkdown th {
+  background: var(--side);
+  font-weight: 600;
 }
 
 .msgActions {

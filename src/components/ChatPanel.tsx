@@ -1,7 +1,6 @@
 import clsx from "clsx";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { listen, type UnlistenFn } from "@tauri-apps/api/event";
-import type { EditorView } from "@codemirror/view";
 
 import { getActiveEditorView, getActiveViewTabId } from "../editor/activeView";
 import { flushScratchNow } from "../editor/autosave";
@@ -16,6 +15,7 @@ import {
   getTempChat,
   isTempAiBlocked,
   loadAiSettings,
+  saveAiSettings,
   setTempAiBlocked,
   setTempChat,
   toAiMessages,
@@ -26,6 +26,7 @@ import { ipc } from "../lib/ipc";
 import type { AiMessage, ChatMessage } from "../lib/types";
 import { useAppStore } from "../store/useAppStore";
 import styles from "../styles/app.module.css";
+import AiMarkdown from "./AiMarkdown";
 
 const QUICK_ORDER: QuickAction[] = ["polish", "summary", "translate", "continue"];
 
@@ -35,25 +36,6 @@ interface RequestHandle {
   /** 清空会话时丢弃在途结果，不再写回历史。 */
   discard: boolean;
   text: string;
-}
-
-function paragraphAt(view: EditorView | null, tabId: string): string {
-  if (!view || getActiveViewTabId() !== tabId) return "";
-  const head = view.state.selection.main.head;
-  const line = view.state.doc.lineAt(head);
-  let from = line.from;
-  let to = line.to;
-  while (from > 0) {
-    const prev = view.state.doc.lineAt(from - 1);
-    if (!prev.text.trim()) break;
-    from = prev.from;
-  }
-  while (to < view.state.doc.length) {
-    const next = view.state.doc.lineAt(to + 1);
-    if (!next.text.trim()) break;
-    to = next.to;
-  }
-  return view.state.doc.sliceString(from, to);
 }
 
 function formatTime(ts: number): string {
@@ -93,17 +75,27 @@ export default function ChatPanel() {
   const settings = useMemo(() => loadAiSettings(), [aiSettingsVersion]);
   const needsKey = settings.template !== "ollama";
   const templateLabel = AI_TEMPLATES[settings.template].label;
+  const bumpAiSettings = useAppStore((s) => s.bumpAiSettings);
+
+  const toggleWriteMode = () => {
+    saveAiSettings({ ...settings, writeMode: !settings.writeMode });
+    bumpAiSettings();
+  };
+
+  // 输入框随内容增高，最多显示 8 行，超出后内部滚动。
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = "auto";
+    const lineHeight = Number.parseFloat(getComputedStyle(el).lineHeight) || 20;
+    const max = lineHeight * 8 + 2;
+    el.style.height = `${Math.min(el.scrollHeight, max)}px`;
+    el.style.overflowY = el.scrollHeight > max ? "auto" : "hidden";
+  }, [input]);
 
   const canRead = tab?.kind === "library" ? docReadable : tab ? !tempBlocked : true;
   const keyOk = !needsKey || keyReady === true;
   const canSend = !!tab && canRead && keyOk && !streaming;
-
-  const readLabel = useMemo(() => {
-    if (settings.scope === "document") {
-      return `${Math.min(docSize, MAX_CONTEXT_CHARS)} / ${docSize} 字`;
-    }
-    return selectionChars > 0 ? `已选 ${selectionChars} 字` : "当前段落";
-  }, [settings.scope, docSize, selectionChars]);
 
   function abortActive() {
     const request = requestRef.current;
@@ -208,26 +200,36 @@ export default function ChatPanel() {
     endRef.current?.scrollIntoView({ block: "end" });
   }, [messages]);
 
-  function contextForSend(tabId: string): { text: string; truncated: boolean } {
-    const current = loadAiSettings();
+  function contextForSend(tabId: string): {
+    text: string;
+    truncated: boolean;
+    selection: string;
+    selectionLines: { from: number; to: number } | null;
+    target: { from: number; to: number; head: number } | null;
+  } {
     const view = getActiveEditorView();
-    if (current.scope === "document") {
-      const full = readTabContent(tabId);
-      const truncated = full.length > MAX_CONTEXT_CHARS;
-      return { text: truncated ? full.slice(0, MAX_CONTEXT_CHARS) : full, truncated };
-    }
-
+    const active = view && getActiveViewTabId() === tabId ? view.state.selection.main : null;
     const selection =
-      view && getActiveViewTabId() === tabId && !view.state.selection.main.empty
-        ? view.state.doc.sliceString(
-            view.state.selection.main.from,
-            view.state.selection.main.to,
-          )
+      view && active && !active.empty
+        ? view.state.doc.sliceString(active.from, active.to)
         : "";
-    const text =
-      selection || paragraphAt(view, tabId) || readTabContent(tabId).slice(0, 4000);
-    const truncated = text.length > MAX_CONTEXT_CHARS;
-    return { text: truncated ? text.slice(0, MAX_CONTEXT_CHARS) : text, truncated };
+    const selectionLines =
+      view && active && !active.empty
+        ? {
+            from: view.state.doc.lineAt(active.from).number,
+            to: view.state.doc.lineAt(Math.max(active.from, active.to - 1)).number,
+          }
+        : null;
+    // 上下文始终是整篇文档；选中片段只作为“要修改的目标”一起给模型。
+    const full = readTabContent(tabId);
+    const truncated = full.length > MAX_CONTEXT_CHARS;
+    return {
+      text: truncated ? full.slice(0, MAX_CONTEXT_CHARS) : full,
+      truncated,
+      selection,
+      selectionLines,
+      target: active ? { from: active.from, to: active.to, head: active.head } : null,
+    };
   }
 
   async function runRequest(instruction: string): Promise<void> {
@@ -246,10 +248,7 @@ export default function ChatPanel() {
     }
 
     const context = contextForSend(tab.id);
-    if (!context.text.trim()) {
-      setError("当前文档没有可发送的内容。");
-      return;
-    }
+    const writeMode = current.writeMode;
 
     const tabAtStart = tab;
     const session = sessionRef.current;
@@ -264,9 +263,11 @@ export default function ChatPanel() {
         role: "system",
         content: buildSystemMessage(
           tabAtStart.title,
-          current.scope,
           context.text,
           context.truncated,
+          context.selection,
+          context.selectionLines,
+          current.writeMode,
         ),
       },
       ...toAiMessages(base),
@@ -328,6 +329,16 @@ export default function ChatPanel() {
             void ipc
               .appendChat(tabAtStart.docId, assistantMessage)
               .catch((err) => console.warn("[chat] 保存失败", err));
+          }
+          if (
+            writeMode &&
+            !request.aborted &&
+            isActive &&
+            sessionRef.current === session
+          ) {
+            const target = context.target;
+            const mode = target && target.from !== target.to ? "replace" : "replaceAll";
+            void applyMessage(full, mode, target);
           }
         } else if (isActive && sessionRef.current === session) {
           setMessages((prev) => prev.filter((message) => message.ts !== assistantTs));
@@ -408,7 +419,11 @@ export default function ChatPanel() {
     if (user) void runRequest(user.content);
   }
 
-  async function applyMessage(contentToApply: string, mode: "replace" | "insert"): Promise<void> {
+  async function applyMessage(
+    contentToApply: string,
+    mode: "replace" | "insert" | "replaceAll",
+    target?: { from: number; to: number; head: number } | null,
+  ): Promise<void> {
     if (!tab) return;
     if (tab.readOnlyFile) {
       setError("大文件以只读方式打开，不能应用 AI 修改。");
@@ -419,8 +434,14 @@ export default function ChatPanel() {
       setError("请先回到要修改的文档。");
       return;
     }
-    if (mode === "replace" && view.state.selection.main.empty) {
-      setError("先在编辑器里选中要替换的文本。");
+    const liveSelection = view.state.selection.main;
+    const range = target ?? {
+      from: liveSelection.from,
+      to: liveSelection.to,
+      head: liveSelection.head,
+    };
+    if (mode === "replace" && range.from === range.to) {
+      setError(target ? "原选区已失效，已取消写入。" : "先在编辑器里选中要替换的文本。");
       return;
     }
 
@@ -450,14 +471,19 @@ export default function ChatPanel() {
       setError("文档已切换，已取消应用。");
       return;
     }
-    const selection = currentView.state.selection.main;
-    if (mode === "replace" && selection.empty) {
+    const docLength = currentView.state.doc.length;
+    const from =
+      mode === "replaceAll"
+        ? 0
+        : Math.min(mode === "replace" ? range.from : range.head, docLength);
+    const to =
+      mode === "replaceAll"
+        ? docLength
+        : Math.min(mode === "replace" ? range.to : range.head, docLength);
+    if (mode === "replace" && from === to) {
       setError("选区已丢失，已取消应用。");
       return;
     }
-
-    const from = mode === "replace" ? selection.from : selection.head;
-    const to = mode === "replace" ? selection.to : selection.head;
     currentView.dispatch({
       changes: { from, to, insert: contentToApply },
       selection: { anchor: from + contentToApply.length },
@@ -490,8 +516,13 @@ export default function ChatPanel() {
   } else if (!keyOk) {
     emptyTitle = "还没配置 AI";
     emptyDesc = "到设置 → AI 填 Base URL、模型和 Key，然后测试连接。";
-  } else if (tab.kind === "temp") {
-    emptyDesc = "临时文档不保留对话，关闭标签即清空。";
+  } else if (docSize > 0) {
+    if (tab.kind === "temp") {
+      emptyDesc = "临时文档不保留对话，关闭标签即清空。";
+    }
+  } else {
+    emptyTitle = "当前文档为空";
+    emptyDesc = "直接描述你想生成的内容（架构、方案、大纲等），AI 会从零开始写，不需要先有正文。";
   }
 
   return (
@@ -519,7 +550,7 @@ export default function ChatPanel() {
           {tab?.title ?? "未打开文档"}
         </span>
         <span>仅本文档</span>
-        <span className={styles.ctxNum}>{readLabel}</span>
+        <span>整篇文档</span>
         <label className={styles.ctxToggle} title="允许 AI 读取本文档">
           <input
             type="checkbox"
@@ -577,9 +608,13 @@ export default function ChatPanel() {
                 <div className={styles.msgMeta}>
                   {message.role === "user" ? "你" : `AI · ${formatTime(message.ts)}`}
                 </div>
-                <pre className={styles.msgText}>
-                  {message.content || (isStreaming ? "生成中…" : "")}
-                </pre>
+                {message.role === "assistant" && message.content ? (
+                  <AiMarkdown content={message.content} />
+                ) : (
+                  <pre className={styles.msgText}>
+                    {message.content || (isStreaming ? "生成中…" : "")}
+                  </pre>
+                )}
                 {message.role === "assistant" && message.content && (
                   <div className={styles.msgActions}>
                     <button
@@ -640,11 +675,7 @@ export default function ChatPanel() {
 
       <div className={styles.quickRow}>
         <span className={styles.quickLabel}>
-          {settings.scope === "document"
-            ? "对整篇文档："
-            : selectionChars > 0
-              ? "对选中文本："
-              : "对当前段落："}
+          {selectionChars > 0 ? "对选中文本：" : "对整篇文档："}
         </span>
         {QUICK_ORDER.map((key) => (
           <button
@@ -682,6 +713,19 @@ export default function ChatPanel() {
             </button>
           </div>
         )}
+
+        <div className={styles.aiWriteRow}>
+          <label title="AI 回复后直接写入当前文档：有选中则替换，无选中插入光标；写入前先存版本快照">
+            <input
+              type="checkbox"
+              checked={settings.writeMode}
+              disabled={!tab || !canRead}
+              onChange={toggleWriteMode}
+            />
+            直接写入文档
+          </label>
+          <span>选中→替换该段 · 未选中→整篇替换 · 写前存快照</span>
+        </div>
 
         <div className={styles.aiBox}>
           <textarea

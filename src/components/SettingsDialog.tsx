@@ -637,20 +637,6 @@ export default function SettingsDialog({ closing = false }: SettingsDialogProps)
                   </div>
                 </div>
 
-                <div className={styles.field}>
-                  <label className={styles.fieldLabel}>请求范围</label>
-                  <select
-                    className={styles.select}
-                    value={ai.scope}
-                    onChange={(event) =>
-                      updateAi({ scope: event.target.value as AiSettings["scope"] })
-                    }
-                  >
-                    <option value="selection">仅选中（无选中时用当前段落）</option>
-                    <option value="document">整篇文档</option>
-                  </select>
-                </div>
-
                 <div className={styles.actionRow}>
                   <button
                     type="button"

@@ -116,7 +116,6 @@ export type AiTemplate =
   | "agnes"
   | "ollama"
   | "custom";
-export type AiScope = "selection" | "document";
 
 export interface AiConfig {
   provider: string;
