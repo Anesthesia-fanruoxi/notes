@@ -1,8 +1,10 @@
 import clsx from "clsx";
 import {
+  useEffect,
   useRef,
   useState,
   type PointerEvent as ReactPointerEvent,
+  type WheelEvent as ReactWheelEvent,
 } from "react";
 
 import {
@@ -41,6 +43,35 @@ export default function TabBar() {
     active: boolean;
   } | null>(null);
   const dragGhostRef = useRef<HTMLElement | null>(null);
+  const scrollRef = useRef<HTMLDivElement>(null);
+
+  // 标签超宽时，滚轮在标签栏上横向滚动；Ctrl/⌘+滚轮仍留给字号缩放。
+  const wheelTabs = (event: ReactWheelEvent<HTMLDivElement>) => {
+    if (event.ctrlKey || event.metaKey) return;
+    const el = scrollRef.current;
+    if (!el || el.scrollWidth <= el.clientWidth) return;
+    const delta =
+      Math.abs(event.deltaX) > Math.abs(event.deltaY) ? event.deltaX : event.deltaY;
+    if (delta === 0) return;
+    el.scrollLeft += delta;
+  };
+
+  // 切换标签时把激活标签滚进可视区。
+  useEffect(() => {
+    const container = scrollRef.current;
+    if (!container) return;
+    const tabEl = container.querySelector<HTMLElement>(
+      `[data-tab-id="${activeTabId}"]`,
+    );
+    if (!tabEl) return;
+    const cont = container.getBoundingClientRect();
+    const rect = tabEl.getBoundingClientRect();
+    if (rect.left < cont.left) {
+      container.scrollBy({ left: rect.left - cont.left - 4, behavior: "smooth" });
+    } else if (rect.right > cont.right) {
+      container.scrollBy({ left: rect.right - cont.right + 4, behavior: "smooth" });
+    }
+  }, [activeTabId, tabs]);
 
   const menuTabIndex = menu
     ? tabs.findIndex((tab) => tab.id === menu.tabId)
@@ -136,8 +167,14 @@ export default function TabBar() {
   };
 
   return (
-    <div className={styles.tabbar} role="tablist" aria-label="打开的文档">
-      {tabs.map((tab) => {
+    <div
+      className={styles.tabbar}
+      role="tablist"
+      aria-label="打开的文档"
+      onWheel={wheelTabs}
+    >
+      <div className={styles.tabScroll} ref={scrollRef}>
+        {tabs.map((tab) => {
         const active = tab.id === activeTabId;
         const ext = tab.filename ? suffixOfName(tab.filename) : null;
         const titleHasExt = !!ext && tab.title.toLowerCase().endsWith(`.${ext}`);
@@ -278,6 +315,7 @@ export default function TabBar() {
           </div>
         );
       })}
+      </div>
 
       <button
         type="button"

@@ -306,7 +306,7 @@ export default function App() {
 
   useEffect(() => {
     writePref("sidebarWidth", sidebarWidth);
-    writePref("sidebarCollapsed", sidebarCollapsed);
+    writePref("sidebarCollapsedV2", sidebarCollapsed);
     writePref("aiWidth", aiWidth);
     writePref("outlineWidth", outlineWidth);
     writePref("themeMode", themeMode);

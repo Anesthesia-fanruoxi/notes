@@ -17,6 +17,11 @@ const applyUiZoom = (fontSize: number) => {
       document.documentElement.style.removeProperty("--editor-font-size");
       return getCurrentWebview().setZoom(fontSize / DEFAULT_FONT_SIZE);
     })
+    .then(() => {
+      // 缩放后部分 WebView 会残留横向滚动，强制回左上角。
+      document.scrollingElement?.scrollTo(0, 0);
+      window.requestAnimationFrame(() => document.scrollingElement?.scrollTo(0, 0));
+    })
     .catch(() => {
       // 浏览器预览没有 Tauri WebView，退回只缩放编辑器正文。
       document.documentElement.style.setProperty("--editor-font-size", `${fontSize}px`);

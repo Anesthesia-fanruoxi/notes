@@ -1,4 +1,5 @@
 import { useEffect } from "react";
+import { createPortal } from "react-dom";
 
 import styles from "../styles/app.module.css";
 
@@ -32,10 +33,11 @@ export default function ContextMenu({ x, y, items, onClose }: Props) {
   }, [onClose]);
 
   const height = items.length * 30 + 12;
-  const left = Math.min(x, window.innerWidth - 196);
-  const top = Math.min(y, window.innerHeight - height);
+  const left = Math.max(8, Math.min(x, window.innerWidth - 196));
+  const top = Math.max(8, Math.min(y, window.innerHeight - height));
 
-  return (
+  // 挂到 body：侧栏/目录的 transform + overflow 会裁掉 fixed 菜单。
+  return createPortal(
     <div
       className={styles.menu}
       style={{ left, top }}
@@ -62,6 +64,7 @@ export default function ContextMenu({ x, y, items, onClose }: Props) {
           </button>
         ),
       )}
-    </div>
+    </div>,
+    document.body,
   );
 }

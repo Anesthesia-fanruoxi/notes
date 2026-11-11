@@ -98,6 +98,8 @@ const liveAttributes = EditorView.editorAttributes.of({ class: "cm-md-live" });
 function previewConfig(): Extension[] {
   return [
     EditorState.readOnly.of(true),
+    // 预览按可视宽度排版：长段落、长 URL 和表格折行，而不是把内容整体撑宽。
+    EditorView.lineWrapping,
     livePreviewExtension,
     livePreviewGuard,
     liveAttributes,

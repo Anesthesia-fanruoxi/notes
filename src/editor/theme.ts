@@ -26,7 +26,8 @@ const baseTheme = EditorView.theme({
     padding: "0",
   },
   ".cm-gutters": {
-    backgroundColor: "transparent",
+    // 必须和编辑区同色且不透明：横向滚动时文字会从行号槽下面穿过。
+    backgroundColor: "var(--editor-bg)",
     borderRight: "1px solid var(--border)",
     color: "var(--fg-3)",
     paddingLeft: "8px",
@@ -298,6 +299,9 @@ const baseTheme = EditorView.theme({
     padding: "5px 9px",
     border: "1px solid var(--border)",
     textAlign: "left",
+    // 字号变大后可用宽度变窄，长 URL/长单词允许折行，避免整张表横向溢出。
+    overflowWrap: "anywhere",
+    wordBreak: "break-word",
   },
   ".cm-md-table th": {
     backgroundColor: "var(--side)",

@@ -215,7 +215,8 @@ export const useAppStore = create<AppState>((set, get) => ({
   settingsSection: "general",
 
   sidebarWidth: clamp(readPref("sidebarWidth", 240), 190, 420),
-  sidebarCollapsed: readPref("sidebarCollapsed", false),
+  // V2：新默认改为收起；换 key 让旧版本存下的展开状态不覆盖新默认。
+  sidebarCollapsed: readPref("sidebarCollapsedV2", true),
   aiWidth: clamp(readPref("aiWidth", 356), 300, 560),
   aiOpen: false,
   outlineWidth: clamp(readPref("outlineWidth", 260), 180, 420),

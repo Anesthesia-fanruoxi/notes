@@ -324,7 +324,7 @@ export default function LibrarySidebar() {
             onClick={(event) => {
               event.stopPropagation();
               const rect = event.currentTarget.getBoundingClientRect();
-              openCategoryMenu(category, rect.right - 6, rect.bottom + 2);
+              openCategoryMenu(category, rect.right - 190, rect.bottom + 2);
             }}
           >
             ＋
@@ -393,7 +393,7 @@ export default function LibrarySidebar() {
             title="新建文件或目录"
             onClick={(event) => {
               const rect = event.currentTarget.getBoundingClientRect();
-              setMenu({ x: rect.right - 6, y: rect.bottom + 2, items: rootMenuItems() });
+              setMenu({ x: rect.right - 190, y: rect.bottom + 2, items: rootMenuItems() });
             }}
           >
             ＋

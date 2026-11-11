@@ -133,6 +133,7 @@
 }
 
 .tab {
+  flex: 0 0 auto;
   display: flex;
   align-items: center;
   gap: 7px;
@@ -144,6 +145,20 @@
   cursor: grab;
   position: relative;
   touch-action: none;
+}
+
+/* 标签多于可用宽度时横向滚动；滚动条隐藏，用左右箭头操作。 */
+.tabScroll {
+  min-width: 0;
+  display: flex;
+  align-items: stretch;
+  overflow-x: auto;
+  overflow-y: hidden;
+  scrollbar-width: none;
+}
+
+.tabScroll::-webkit-scrollbar {
+  display: none;
 }
 
 .tab:active {
@@ -661,6 +676,8 @@
 }
 
 .docName {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
@@ -786,6 +803,8 @@
   display: flex;
   flex-direction: column;
   background: var(--pane);
+  /* 行号栏等编辑器内部元素跟随编辑区底色（自定义背景时由内联变量覆盖）。 */
+  --editor-bg: var(--pane);
   position: relative;
 }
 
@@ -855,7 +874,6 @@
   flex-direction: column;
   /* 用卡片底色而不是侧栏色，避免和左侧文档库混在一起。 */
   background: var(--win);
-  border-left: 2px solid color-mix(in srgb, var(--accent) 42%, transparent);
   transform: translateX(-12px);
   transition: transform 1s cubic-bezier(0.4, 0, 0.2, 1);
 }
@@ -870,7 +888,7 @@
   align-items: center;
   padding: 0 12px;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--accent) 12%, var(--win));
+  background: var(--win);
   color: var(--fg-2);
   font-size: 11.5px;
   letter-spacing: 0.08em;
@@ -881,6 +899,13 @@
   min-height: 0;
   overflow-y: auto;
   padding: 0 6px 12px;
+}
+
+/* 顶部间距用内容占位块：滚动时会一起滚走，不会让上一行的对齐线透出来。 */
+.outlineList::before {
+  content: "";
+  display: block;
+  height: 8px;
 }
 
 .outlineEmpty {
@@ -925,8 +950,9 @@
 }
 
 .outlineItemActive {
-  border-left-color: var(--accent);
-  background: color-mix(in srgb, var(--accent) 12%, var(--win));
+  border-left-color: transparent;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--accent) 10%, var(--win));
   color: var(--accent);
 }
 
@@ -1540,6 +1566,8 @@
   padding: 5px 9px;
   border: 1px solid var(--border);
   text-align: left;
+  overflow-wrap: anywhere;
+  word-break: break-word;
 }
 
 .markdownBody th {
@@ -2252,11 +2280,14 @@
 }
 
 .catName {
+  flex: 1 1 auto;
+  min-width: 0;
   overflow: hidden;
   text-overflow: ellipsis;
 }
 
 .catCount {
+  flex: 0 0 auto;
   margin-left: auto;
   color: var(--fg-3);
   font-family: var(--mono);

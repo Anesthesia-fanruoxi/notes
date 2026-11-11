@@ -635,7 +635,14 @@ export default function EditorPane() {
     <main
       className={styles.pane}
       data-editor-tone={editorBg.tone ?? undefined}
-      style={editorBg.color ? { backgroundColor: editorBg.color } : undefined}
+      style={
+        editorBg.color
+          ? ({
+              backgroundColor: editorBg.color,
+              "--editor-bg": editorBg.color,
+            } as CSSProperties)
+          : undefined
+      }
     >
       {hint && !isReadOnly && <div className={styles.tierBar}>{hint}</div>}
       {activeTab?.missing && activeTab.path ? (
